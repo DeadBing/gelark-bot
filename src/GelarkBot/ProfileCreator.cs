@@ -64,6 +64,6 @@ public sealed class ProfileCreator
             Directory.CreateDirectory(directory);
         }
 
-        File.WriteAllText(path, JsonSerializer.Serialize(result, JsonUtil.Options));
+        File.WriteAllText(path, JsonSerializer.Serialize(result, JsonUtil.Indented));
     }
 }
