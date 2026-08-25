@@ -42,8 +42,8 @@ public class GeeLarkClientTests
         {
             ProfileName = "alice",
             Proxy = new ProxyEndpoint { ConnectionString = "socks5://u:p@1.1.1.1:1080", Source = "static" },
-            Email = new EmailCredential { Email = "alice@example.com" },
-            ProfileNote = "email: alice@example.com",
+            Email = new EmailCredential { Login = "alice@example.com" },
+            ProfileNote = "login: alice@example.com",
             ProfileTags = ["floppydata"],
         };
 
@@ -55,6 +55,7 @@ public class GeeLarkClientTests
         Assert.True(handler.Requests[0].Headers.ContainsKey("traceId"));
         Assert.Equal(32, handler.Requests[0].Headers["traceId"].Length);
         Assert.Contains("socks5://u:p@1.1.1.1:1080", handler.Requests[0].Body);
+        Assert.Contains("\"profileNote\":\"login: alice@example.com\"", handler.Requests[0].Body);
         Assert.Contains("\"mobileType\":\"Android 12\"", handler.Requests[0].Body);
         Assert.EndsWith("/open/v1/phone/addNew", handler.Requests[0].Uri.AbsolutePath);
     }

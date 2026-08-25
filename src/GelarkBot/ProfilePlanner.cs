@@ -11,7 +11,7 @@ public static class ProfilePlanner
     {
         if (emails is { Count: > 0 } && emails.Count < proxies.Count)
         {
-            throw new InvalidOperationException($"Need {proxies.Count} emails, but the pool only has {emails.Count}.");
+            throw new InvalidOperationException($"Need {proxies.Count} accounts, but the pool only has {emails.Count}.");
         }
 
         var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -50,7 +50,7 @@ public static class ProfilePlanner
         string candidate;
         if (nameFromEmail && email is not null)
         {
-            var local = email.Email.Split('@')[0];
+            var local = email.Login.Contains('@') ? email.Login.Split('@')[0] : email.Login;
             candidate = NameUtil.Sanitize(local);
             var suffix = 2;
             var original = candidate;

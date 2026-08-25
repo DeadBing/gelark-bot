@@ -47,15 +47,16 @@ public class ProfileCreatorTests
             var result = await creator.CreateAsync(new CreateRequest
             {
                 Count = 1,
-                Emails = [new EmailCredential { Email = "alice@example.com", Password = "pw" }],
+                Emails = [new EmailCredential { Login = "alice@example.com", Password = "pw", TotpSecret = "JBSWY3DPEHPK3PXP" }],
                 DryRun = true,
             });
 
             Assert.True(result.DryRun);
             Assert.Equal(1, result.Success);
             Assert.Equal("alice", result.Profiles[0].ProfileName);
-            Assert.Equal("alice@example.com", result.Profiles[0].Email);
-            Assert.Equal("pw", result.Profiles[0].EmailPassword);
+            Assert.Equal("alice@example.com", result.Profiles[0].Login);
+            Assert.Equal("pw", result.Profiles[0].Password);
+            Assert.Equal("JBSWY3DPEHPK3PXP", result.Profiles[0].TotpSecret);
             Assert.Empty(geeLarkHandler.Requests);
             Assert.True(File.Exists(output));
             Assert.Contains("alice@example.com", File.ReadAllText(output));

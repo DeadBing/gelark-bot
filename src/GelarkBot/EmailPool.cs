@@ -1,13 +1,7 @@
-using System.Text.RegularExpressions;
-
 namespace GelarkBot;
 
 public static class EmailPool
 {
-    private static readonly Regex EmailRegex = new(
-        @"^[^@\s]+@[^@\s]+\.[^@\s]+$",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
-
     public static EmailCredential? ParseLine(string line)
     {
         var text = line.Trim();
@@ -16,35 +10,36 @@ public static class EmailPool
             return null;
         }
 
-        var email = text;
+        var parts = text.Split(':');
+        var login = parts[0].Trim();
+        if (login.Length == 0)
+        {
+            throw new FormatException($"Invalid account line: {line}");
+        }
+
         string? password = null;
-        foreach (var separator in new[] { ':', ',', ';' })
+        string? totpSecret = null;
+        if (parts.Length == 2)
         {
-            var index = text.IndexOf(separator);
-            if (index > 0)
-            {
-                email = text[..index].Trim();
-                password = text[(index + 1)..].Trim();
-                if (password.Length == 0)
-                {
-                    password = null;
-                }
-
-                break;
-            }
+            password = EmptyToNull(parts[1]);
+        }
+        else if (parts.Length >= 3)
+        {
+            totpSecret = EmptyToNull(parts[^1]);
+            password = EmptyToNull(string.Join(':', parts[1..^1]));
         }
 
-        if (!EmailRegex.IsMatch(email))
+        return new EmailCredential
         {
-            throw new FormatException($"Invalid email line: {line}");
-        }
-
-        return new EmailCredential { Email = email, Password = password };
+            Login = login,
+            Password = password,
+            TotpSecret = totpSecret,
+        };
     }
 
     public static IReadOnlyList<EmailCredential> Load(string path)
     {
-        var emails = new List<EmailCredential>();
+        var accounts = new List<EmailCredential>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var lines = File.ReadAllLines(path);
         for (var i = 0; i < lines.Length; i++)
@@ -64,24 +59,30 @@ public static class EmailPool
                 continue;
             }
 
-            if (!seen.Add(item.Email))
+            if (!seen.Add(item.Login))
             {
-                throw new FormatException($"{path}:{i + 1}: duplicate email {item.Email}");
+                throw new FormatException($"{path}:{i + 1}: duplicate login {item.Login}");
             }
 
-            emails.Add(item);
+            accounts.Add(item);
         }
 
-        return emails;
+        return accounts;
     }
 
     public static IReadOnlyList<EmailCredential> Take(IReadOnlyList<EmailCredential> pool, int count)
     {
         if (count > pool.Count)
         {
-            throw new InvalidOperationException($"Need {count} emails, but the pool only has {pool.Count}.");
+            throw new InvalidOperationException($"Need {count} accounts, but the pool only has {pool.Count}.");
         }
 
         return pool.Take(count).ToList();
+    }
+
+    private static string? EmptyToNull(string value)
+    {
+        var trimmed = value.Trim();
+        return trimmed.Length == 0 ? null : trimmed;
     }
 }

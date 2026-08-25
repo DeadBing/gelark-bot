@@ -6,11 +6,11 @@ DotEnv.Load(Path.Combine(Directory.GetCurrentDirectory(), ".env"));
 
 var countOption = new Option<int?>("--count", "-n")
 {
-    Description = "How many profiles to create. Defaults to the email-file size when --emails is set.",
+    Description = "How many profiles to create. Defaults to the account-file size when --emails is set.",
 };
 var emailsOption = new Option<FileInfo?>("--emails")
 {
-    Description = "Optional email pool file. GeeLark does not require emails to create a profile.",
+    Description = "Optional account pool: login:password:totp. Not required to create a GeeLark profile.",
 };
 var dryRunOption = new Option<bool>("--dry-run")
 {
@@ -135,8 +135,8 @@ createCommand.SetAction(async (parseResult, cancellationToken) =>
         {
             var status = profile.Ok ? "OK" : "FAIL";
             var id = profile.Id ?? "-";
-            var email = profile.Email ?? "-";
-            Console.WriteLine($"{status}\t{profile.ProfileName}\t{id}\t{email}\t{NameUtil.RedactProxy(profile.Proxy)}");
+            var login = profile.Login ?? "-";
+            Console.WriteLine($"{status}\t{profile.ProfileName}\t{id}\t{login}\t{NameUtil.RedactProxy(profile.Proxy)}");
             if (!profile.Ok && !string.IsNullOrWhiteSpace(profile.Error))
             {
                 Console.WriteLine($"\t{profile.Error}");

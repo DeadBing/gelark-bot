@@ -1,7 +1,5 @@
-# One credential per line. Password is optional.
-# Formats: email
-#          email:password
-#          email,password
-alice@example.com:secret1
-bob@example.com
-carol@example.com,secret3
+# login:password:totp
+# TOTP secret is stored with the profile. It is not used when creating it.
+alice@example.com:secret1:JBSWY3DPEHPK3PXP
+bob@example.com:secret2:MFRGGZDFMZTWQ2LK
+user123:p@ss:ONSWG4TFOQ

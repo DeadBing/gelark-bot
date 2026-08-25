@@ -4,10 +4,11 @@ namespace GelarkBot;
 
 public sealed class EmailCredential
 {
-    public required string Email { get; init; }
+    public required string Login { get; init; }
     public string? Password { get; init; }
+    public string? TotpSecret { get; init; }
 
-    public string NoteLine() => $"email: {Email}";
+    public string NoteLine() => $"login: {Login}";
 }
 
 public sealed class ProxyEndpoint
@@ -42,8 +43,9 @@ public sealed class CreatedProfile
     public required bool Ok { get; init; }
     public string? Id { get; init; }
     public string? EnvSerialNo { get; init; }
-    public string? Email { get; init; }
-    public string? EmailPassword { get; init; }
+    public string? Login { get; init; }
+    public string? Password { get; init; }
+    public string? TotpSecret { get; init; }
     public required string Proxy { get; init; }
     public required string ProxySource { get; init; }
     public string Note { get; init; } = "";
@@ -64,8 +66,9 @@ public sealed class CreatedProfile
             Ok = ok,
             Id = phoneId,
             EnvSerialNo = envSerialNo,
-            Email = plan.Email?.Email,
-            EmailPassword = plan.Email?.Password,
+            Login = plan.Email?.Login,
+            Password = plan.Email?.Password,
+            TotpSecret = plan.Email?.TotpSecret,
             Proxy = plan.Proxy.ConnectionString,
             ProxySource = plan.Proxy.Source,
             Note = plan.ProfileNote,

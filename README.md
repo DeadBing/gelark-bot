@@ -2,7 +2,7 @@
 
 .NET 8 CLI: берёт прокси из [FloppyData](https://floppydata.com/docs) и создаёт облачные профили (cloud phones) в [GeeLark](https://open.geelark.com/api). Без установки приложений и без автоматизаций внутри телефона.
 
-Email для создания профиля **не нужен**. Если есть пул — каждый email привязывается к профилю: в заметку GeeLark и в локальный JSON, чтобы потом кормить своё приложение.
+Почта для создания профиля **не нужна**. `--emails` — только чтобы сразу привязать аккаунт к профилю на потом: логин в заметку GeeLark, логин/пароль/TOTP-секрет — в локальный JSON. Коды 2FA при создании не считаем и в GeeLark не отправляем.
 
 ## Что нужно
 
@@ -37,7 +37,7 @@ dotnet run --project src/GelarkBot.Cli -- create --emails examples/emails.txt --
 Полезные флаги `create`:
 
 - `--count N` — сколько профилей. Если не задан, берётся размер `--emails`
-- `--emails file` — пул `email` / `email:password` / `email,password`
+- `--emails file` — пул `логин:пароль:totp`, не обязателен
 - `--proxy-mode static|rotating` — static IP с аккаунта или sticky rotating-сессии
 - `--country US` — фильтр static / гео rotating
 - `--dry-run` — только план и JSON, без `phone/addNew`
@@ -52,9 +52,17 @@ dotnet run --project src/GelarkBot.Cli -- create --emails examples/emails.txt --
 
 В GeeLark прокси передаётся как `proxyInformation` в `POST /open/v1/phone/addNew`.
 
-## Email-файл
+## Файл аккаунтов
 
-См. `examples/emails.txt`. Пароль в заметку GeeLark не пишется, только в `data/created-profiles.json`.
+Формат одной строки: `логин:пароль:токен_аутентификатора`
+
+```
+alice@example.com:secret1:JBSWY3DPEHPK3PXP
+```
+
+Логин может быть почтой или ником. Если в пароле есть `:`, токен всё равно берётся из последнего поля.
+
+В заметку GeeLark уходит только логин. Пароль и TOTP-секрет остаются в `data/created-profiles.json`. 2fa.live и OTP-библиотека не подключены: для создания профиля они не нужны.
 
 ## Тесты
 
