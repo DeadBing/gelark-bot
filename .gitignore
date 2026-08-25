@@ -1,0 +1,11 @@
+.env
+bin/
+obj/
+.vs/
+.idea/
+/data/
+/emails.txt
+*.user
+*.suo
+*.log
+TestResults/

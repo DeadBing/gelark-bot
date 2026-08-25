@@ -1,0 +1,7 @@
+# One credential per line. Password is optional.
+# Formats: email
+#          email:password
+#          email,password
+alice@example.com:secret1
+bob@example.com
+carol@example.com,secret3
