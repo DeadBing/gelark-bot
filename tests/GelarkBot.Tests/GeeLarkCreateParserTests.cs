@@ -49,7 +49,9 @@ public class GeeLarkCreateParserTests
         var mapped = GeeLarkCreateParser.Map([Plan("gl-001")], 40006, "partial success", details);
 
         Assert.False(mapped[0].Ok);
-        Assert.Contains("--protocol http", mapped[0].Error);
+        Assert.Contains("check proxy failed", mapped[0].Error);
+        Assert.DoesNotContain("--protocol http", mapped[0].Error);
+        Assert.Contains("geo.g-w.info", mapped[0].Error);
     }
 
     [Fact]

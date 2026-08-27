@@ -7,12 +7,18 @@ public sealed class ProfileCreator
     private readonly FloppyDataClient _floppyData;
     private readonly GeeLarkClient? _geeLark;
     private readonly AppSettings _settings;
+    private readonly Func<string, CancellationToken, Task<string?>> _resolveIpv4;
 
-    public ProfileCreator(FloppyDataClient floppyData, GeeLarkClient? geeLark, AppSettings settings)
+    public ProfileCreator(
+        FloppyDataClient floppyData,
+        GeeLarkClient? geeLark,
+        AppSettings settings,
+        Func<string, CancellationToken, Task<string?>>? resolveIpv4 = null)
     {
         _floppyData = floppyData;
         _geeLark = geeLark;
         _settings = settings;
+        _resolveIpv4 = resolveIpv4 ?? ProxyUrl.ResolveIpv4Async;
     }
 
     public async Task<CreateResult> CreateAsync(CreateRequest request, CancellationToken cancellationToken = default)
@@ -40,8 +46,9 @@ public sealed class ProfileCreator
                 throw new InvalidOperationException("GeeLark client is required unless --dry-run is set.");
             }
 
-            profiles = await _geeLark.CreatePhonesAsync(plans, _settings.BatchSize, cancellationToken);
-            profiles = await RetryProxyCheckFailuresAsync(plans, profiles, cancellationToken);
+            profiles = request.CheckOnly
+                ? await CheckOnlyAsync(plans, cancellationToken)
+                : await PrepareAndCreateAsync(plans, cancellationToken);
         }
 
         var result = new CreateResult
@@ -53,54 +60,247 @@ public sealed class ProfileCreator
             Profiles = profiles,
         };
 
-        WriteResult(_settings.OutputFile, result);
+        WriteResult(request.CheckOnly && request.DryRun == false ? CheckOutputPath() : _settings.OutputFile, result);
         return result;
     }
 
-    private async Task<IReadOnlyList<CreatedProfile>> RetryProxyCheckFailuresAsync(
+    private string CheckOutputPath()
+    {
+        var directory = Path.GetDirectoryName(Path.GetFullPath(_settings.OutputFile)) ?? "data";
+        return Path.Combine(directory, "last-proxy-check.json");
+    }
+
+    private async Task<IReadOnlyList<CreatedProfile>> CheckOnlyAsync(
         IReadOnlyList<ProfilePlan> plans,
-        IReadOnlyList<CreatedProfile> profiles,
         CancellationToken cancellationToken)
     {
-        if (_geeLark is null || _settings.ProxyMode.Trim().ToLowerInvariant() != "rotating")
+        var profiles = new List<CreatedProfile>(plans.Count);
+        foreach (var plan in plans)
         {
-            return profiles;
+            var prepared = await PrepareAsync(plan, addToGeeLark: false, cancellationToken);
+            profiles.Add(CreatedProfile.FromPlan(
+                prepared.Plan,
+                prepared.GeeLarkOk,
+                error: prepared.GeeLarkOk ? null : prepared.Error));
         }
 
-        var retried = profiles.ToList();
-        for (var i = 0; i < retried.Count; i++)
+        return profiles;
+    }
+
+    private async Task<IReadOnlyList<CreatedProfile>> PrepareAndCreateAsync(
+        IReadOnlyList<ProfilePlan> plans,
+        CancellationToken cancellationToken)
+    {
+        var ready = new List<ProfilePlan>();
+        var skipped = new Dictionary<int, CreatedProfile>();
+        foreach (var (plan, index) in plans.Select((plan, index) => (plan, index)))
         {
-            var profile = retried[i];
-            var plan = plans[i];
-            if (!GeeLarkCreateParser.IsProxyCheckFailure(profile.Error))
+            var prepared = await PrepareAsync(plan, addToGeeLark: true, cancellationToken);
+            if (prepared.SkipCreate)
+            {
+                skipped[index] = CreatedProfile.FromPlan(prepared.Plan, false, error: prepared.Error);
+                continue;
+            }
+
+            ready.Add(prepared.Plan);
+        }
+
+        var created = ready.Count == 0
+            ? []
+            : await _geeLark!.CreatePhonesAsync(ready, _settings.BatchSize, cancellationToken);
+
+        var merged = new List<CreatedProfile>(plans.Count);
+        var createdIndex = 0;
+        for (var i = 0; i < plans.Count; i++)
+        {
+            if (skipped.TryGetValue(i, out var failed))
+            {
+                merged.Add(failed);
+                continue;
+            }
+
+            var profile = created[createdIndex];
+            var plan = ready[createdIndex];
+            createdIndex++;
+            if (!profile.Ok && GeeLarkCreateParser.IsProxyCheckFailure(profile.Error))
+            {
+                profile = CreatedProfile.FromPlan(
+                    plan,
+                    false,
+                    phoneId: profile.Id,
+                    envSerialNo: profile.EnvSerialNo,
+                    error: GeeLarkCreateParser.ExplainProxyCheckFailure(plan),
+                    equipment: profile.Equipment,
+                    diagnostics: plan.Diagnostics);
+            }
+            else if (plan.Diagnostics.Count > 0)
+            {
+                profile = CreatedProfile.FromPlan(
+                    plan,
+                    profile.Ok,
+                    phoneId: profile.Id,
+                    envSerialNo: profile.EnvSerialNo,
+                    error: profile.Error,
+                    equipment: profile.Equipment,
+                    diagnostics: plan.Diagnostics);
+            }
+
+            merged.Add(profile);
+        }
+
+        return merged;
+    }
+
+    private async Task<PreparedPlan> PrepareAsync(
+        ProfilePlan plan,
+        bool addToGeeLark,
+        CancellationToken cancellationToken)
+    {
+        var parsed = ProxyUrl.Parse(plan.Proxy);
+        var diagnostics = new List<string>();
+
+        var floppy = await SafeFloppyCheckAsync(parsed, cancellationToken);
+        if (floppy is not null)
+        {
+            diagnostics.Add(floppy.ToString());
+            if (!floppy.Ok && floppy.Message == "no exit IP")
+            {
+                var dead = WithDiagnostics(plan, parsed, diagnostics);
+                return new PreparedPlan(dead, false, true, "FloppyData check failed: no exit IP.");
+            }
+        }
+
+        var preferredName = _settings.ProxyQueryChannel == 2 ? "IP2Location" : "IP-API";
+        var otherName = preferredName == "IP2Location" ? "IP-API" : "IP2Location";
+        var preferredNum = preferredName == "IP2Location" ? 2 : 1;
+        var otherNum = preferredNum == 2 ? 1 : 2;
+
+        string? ipv4 = null;
+        if (!string.IsNullOrWhiteSpace(parsed.Host) && !ProxyUrl.IsIpv4(parsed.Host))
+        {
+            ipv4 = await _resolveIpv4(parsed.Host, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(ipv4))
+            {
+                diagnostics.Add($"resolved {parsed.Host} -> {ipv4}");
+            }
+        }
+
+        var attempts = new List<(ProxyEndpoint Proxy, string Channel, int ChannelNum)>();
+        attempts.Add((parsed, preferredName, preferredNum));
+        if (!string.IsNullOrWhiteSpace(ipv4) && !string.Equals(ipv4, parsed.Host, StringComparison.OrdinalIgnoreCase))
+        {
+            attempts.Add((ProxyUrl.WithServer(parsed, ipv4), preferredName, preferredNum));
+        }
+
+        attempts.Add((parsed, otherName, otherNum));
+        if (!string.IsNullOrWhiteSpace(ipv4) && !string.Equals(ipv4, parsed.Host, StringComparison.OrdinalIgnoreCase))
+        {
+            attempts.Add((ProxyUrl.WithServer(parsed, ipv4), otherName, otherNum));
+        }
+
+        ProxyEndpoint chosen = parsed;
+        var chosenChannel = preferredNum;
+        var geeLarkOk = false;
+        foreach (var attempt in attempts)
+        {
+            var check = await SafeGeeLarkCheckAsync(attempt.Proxy, attempt.Channel, cancellationToken);
+            diagnostics.Add($"{check} {attempt.Proxy.Host}:{attempt.Proxy.Port} {attempt.Channel}");
+            if (!check.Ok)
             {
                 continue;
             }
 
-            if (!string.Equals(plan.Proxy.Protocol, "socks5", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
+            chosen = attempt.Proxy;
+            chosenChannel = attempt.ChannelNum;
+            geeLarkOk = true;
+            break;
+        }
 
-            var session = plan.Proxy.Session ?? $"retry-{i + 1:000}";
-            var httpProxy = await _floppyData.CreateRotatingConnectionAsync(session, "http", cancellationToken);
-            var httpPlan = new ProfilePlan
+        int? serial = null;
+        if (addToGeeLark && geeLarkOk && _geeLark is not null)
+        {
+            try
             {
-                ProfileName = plan.ProfileName,
-                Proxy = httpProxy,
-                Email = plan.Email,
-                ProfileNote = plan.ProfileNote,
-                ProfileTags = plan.ProfileTags,
-                ProfileGroup = plan.ProfileGroup,
-            };
-            var again = await _geeLark.CreatePhonesAsync([httpPlan], 1, cancellationToken);
-            if (again.Count > 0)
+                serial = await _geeLark.AddOrGetSerialAsync(chosen, chosenChannel, cancellationToken);
+                diagnostics.Add($"GeeLark proxy serial {serial}");
+            }
+            catch (GeeLarkException ex)
             {
-                retried[i] = again[0];
+                diagnostics.Add($"GeeLark add proxy skipped: {ex.Message}");
             }
         }
 
-        return retried;
+        var prepared = new ProfilePlan
+        {
+            ProfileName = plan.ProfileName,
+            Proxy = new ProxyEndpoint
+            {
+                ConnectionString = plan.Proxy.ConnectionString,
+                Source = chosen.Source,
+                Protocol = chosen.Protocol,
+                Host = chosen.Host,
+                Port = chosen.Port,
+                Username = chosen.Username,
+                Password = chosen.Password,
+                Country = chosen.Country,
+                City = chosen.City,
+                Ip = chosen.Ip,
+                Session = chosen.Session,
+                StaticId = chosen.StaticId,
+                GeeLarkSerial = serial,
+            },
+            Email = plan.Email,
+            ProfileNote = plan.ProfileNote,
+            ProfileTags = plan.ProfileTags,
+            ProfileGroup = plan.ProfileGroup,
+            ProxyNumber = serial,
+            ProxyQueryChannel = chosenChannel,
+            Diagnostics = diagnostics,
+        };
+
+        var error = geeLarkOk
+            ? null
+            : GeeLarkCreateParser.ExplainProxyCheckFailure(prepared);
+        return new PreparedPlan(prepared, geeLarkOk, SkipCreate: false, error);
+    }
+
+    private static ProfilePlan WithDiagnostics(ProfilePlan plan, ProxyEndpoint parsed, IReadOnlyList<string> diagnostics) =>
+        new()
+        {
+            ProfileName = plan.ProfileName,
+            Proxy = parsed,
+            Email = plan.Email,
+            ProfileNote = plan.ProfileNote,
+            ProfileTags = plan.ProfileTags,
+            ProfileGroup = plan.ProfileGroup,
+            Diagnostics = diagnostics,
+        };
+
+    private async Task<ProxyCheckResult?> SafeFloppyCheckAsync(ProxyEndpoint proxy, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _floppyData.CheckAsync(proxy, cancellationToken);
+        }
+        catch (Exception ex) when (ex is FloppyDataException or HttpRequestException or TaskCanceledException)
+        {
+            return new ProxyCheckResult { Source = "FloppyData", Ok = false, Message = ex.Message };
+        }
+    }
+
+    private async Task<ProxyCheckResult> SafeGeeLarkCheckAsync(
+        ProxyEndpoint proxy,
+        string channel,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _geeLark!.CheckProxyAsync(proxy, channel, cancellationToken);
+        }
+        catch (Exception ex) when (ex is GeeLarkException or HttpRequestException or TaskCanceledException)
+        {
+            return new ProxyCheckResult { Source = "GeeLark", Ok = false, Message = ex.Message };
+        }
     }
 
     public static void WriteResult(string path, CreateResult result)
@@ -113,4 +313,6 @@ public sealed class ProfileCreator
 
         File.WriteAllText(path, JsonSerializer.Serialize(result, JsonUtil.Indented));
     }
+
+    private sealed record PreparedPlan(ProfilePlan Plan, bool GeeLarkOk, bool SkipCreate, string? Error);
 }

@@ -19,18 +19,19 @@ public static class NameUtil
 
     public static string RedactProxy(string connectionString)
     {
-        if (!Uri.TryCreate(connectionString, UriKind.Absolute, out var uri))
+        var parsed = ProxyUrl.ParseString(connectionString);
+        if (parsed is null || string.IsNullOrEmpty(parsed.Password) || string.IsNullOrWhiteSpace(parsed.Host))
         {
             return connectionString;
         }
 
-        if (string.IsNullOrEmpty(uri.UserInfo) || !uri.UserInfo.Contains(':'))
+        var scheme = string.IsNullOrWhiteSpace(parsed.Protocol) ? "http" : parsed.Protocol;
+        var port = parsed.Port is > 0 ? $":{parsed.Port}" : "";
+        if (connectionString.Contains('@'))
         {
-            return connectionString;
+            return $"{scheme}://{parsed.Username}:***@{parsed.Host}{port}";
         }
 
-        var user = uri.UserInfo.Split(':')[0];
-        var port = uri.IsDefaultPort ? "" : $":{uri.Port}";
-        return $"{uri.Scheme}://{user}:***@{uri.Host}{port}";
+        return $"{scheme}://{parsed.Host}{port}:{parsed.Username}:***";
     }
 }

@@ -77,5 +77,6 @@ public class ProfilePlannerTests
     public void RedactProxy_HidesPassword()
     {
         Assert.Equal("socks5://user:***@host.example:1080", NameUtil.RedactProxy("socks5://user:secret@host.example:1080"));
+        Assert.Equal("http://geo.g-w.info:10080:user:***", NameUtil.RedactProxy("http://geo.g-w.info:10080:user:secret"));
     }
 }

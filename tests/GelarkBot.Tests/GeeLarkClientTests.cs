@@ -54,7 +54,7 @@ public class GeeLarkClientTests
         Assert.Equal("Bearer token", handler.Requests[0].Headers["Authorization"]);
         Assert.True(handler.Requests[0].Headers.ContainsKey("traceId"));
         Assert.Equal(32, handler.Requests[0].Headers["traceId"].Length);
-        Assert.Contains("socks5://u:p@1.1.1.1:1080", handler.Requests[0].Body);
+        Assert.Contains("socks5://1.1.1.1:1080:u:p", handler.Requests[0].Body);
         Assert.Contains("\"profileNote\":\"login: alice@example.com\"", handler.Requests[0].Body);
         Assert.Contains("\"mobileType\":\"Android 12\"", handler.Requests[0].Body);
         Assert.Contains("\"proxyQueryChannel\":1", handler.Requests[0].Body);
@@ -174,6 +174,130 @@ public class GeeLarkClientTests
 
         var list = await client.ListPhonesAsync();
         Assert.Equal(0, list.Total);
+    }
+
+    [Fact]
+    public async Task CheckProxy_ReadsDetectStatus()
+    {
+        var handler = new ScriptedHandler
+        {
+            Responder = (_, body) =>
+            {
+                Assert.Contains("\"proxyQueryChannel\":\"IP-API\"", body);
+                Assert.Contains("\"server\":\"geo.g-w.info\"", body);
+                Assert.Contains("\"username\":\"user-abc\"", body);
+                return TestHttp.Json("""
+                    {
+                      "code": 0,
+                      "msg": "success",
+                      "data": {
+                        "detectStatus": true,
+                        "outboundIP": "1.2.3.4",
+                        "countryName": "United States"
+                      }
+                    }
+                    """);
+            },
+        };
+        using var http = new HttpClient(handler);
+        var client = new GeeLarkClient(http, TestHttp.Settings());
+
+        var check = await client.CheckProxyAsync(new ProxyEndpoint
+        {
+            ConnectionString = "http://user-abc:secret@geo.g-w.info:10080",
+            Source = "rotating",
+            Protocol = "http",
+            Host = "geo.g-w.info",
+            Port = 10080,
+            Username = "user-abc",
+            Password = "secret",
+        });
+
+        Assert.True(check.Ok);
+        Assert.Equal("1.2.3.4", check.Ip);
+        Assert.EndsWith("/open/v1/proxy/check", handler.Requests[0].Uri.AbsolutePath);
+    }
+
+    [Fact]
+    public async Task AddOrGetSerial_UsesSuccessDetailsThenList()
+    {
+        var handler = new ScriptedHandler
+        {
+            Responder = (request, _) =>
+            {
+                if (request.RequestUri!.AbsolutePath.EndsWith("/open/v1/proxy/add"))
+                {
+                    return TestHttp.Json("""
+                        {
+                          "code": 0,
+                          "msg": "success",
+                          "data": { "successDetails": [ { "index": 0, "id": "proxy-9" } ] }
+                        }
+                        """);
+                }
+
+                return TestHttp.Json("""
+                    {
+                      "code": 0,
+                      "msg": "success",
+                      "data": {
+                        "list": [
+                          { "id": "proxy-9", "serialNo": 22, "server": "1.1.1.1", "port": 80, "username": "u" }
+                        ]
+                      }
+                    }
+                    """);
+            },
+        };
+        using var http = new HttpClient(handler);
+        var client = new GeeLarkClient(http, TestHttp.Settings());
+
+        var serial = await client.AddOrGetSerialAsync(new ProxyEndpoint
+        {
+            ConnectionString = "http://u:p@1.1.1.1:80",
+            Source = "static",
+            Protocol = "http",
+            Host = "1.1.1.1",
+            Port = 80,
+            Username = "u",
+            Password = "p",
+        });
+
+        Assert.Equal(22, serial);
+        Assert.Equal(2, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task CreatePhones_SendsProxyNumberInsteadOfUrl()
+    {
+        var handler = new ScriptedHandler
+        {
+            Responder = (_, _) => TestHttp.Json("""
+                {
+                  "code": 0,
+                  "msg": "success",
+                  "data": {
+                    "details": [
+                      { "index": 1, "code": 0, "msg": "success", "id": "phone-1", "profileName": "with-serial" }
+                    ]
+                  }
+                }
+                """),
+        };
+        using var http = new HttpClient(handler);
+        var client = new GeeLarkClient(http, TestHttp.Settings());
+
+        await client.CreatePhonesAsync([
+            new ProfilePlan
+            {
+                ProfileName = "with-serial",
+                Proxy = new ProxyEndpoint { ConnectionString = "http://u:p@1.1.1.1:80", Source = "static" },
+                ProxyNumber = 22,
+            },
+        ]);
+
+        Assert.Contains("\"proxyNumber\":22", handler.Requests[0].Body);
+        Assert.DoesNotContain("proxyInformation", handler.Requests[0].Body);
     }
 
     [Fact]

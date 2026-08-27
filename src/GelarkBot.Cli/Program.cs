@@ -30,7 +30,7 @@ var countryOption = new Option<string?>("--country")
 };
 var protocolOption = new Option<string?>("--protocol")
 {
-    Description = "http, https, or socks5 for rotating proxies. http is more reliable for GeeLark's checker.",
+    Description = "http, https, or socks5 for rotating proxies. Default: http.",
 };
 var namePrefixOption = new Option<string>("--name-prefix")
 {
@@ -133,29 +133,10 @@ createCommand.SetAction(async (parseResult, cancellationToken) =>
             },
             cancellationToken);
 
-        foreach (var profile in result.Profiles)
-        {
-            var status = profile.Ok ? "OK" : "FAIL";
-            var id = profile.Id ?? "-";
-            var login = profile.Login ?? "-";
-            Console.WriteLine($"{status}\t{profile.ProfileName}\t{id}\t{login}\t{NameUtil.RedactProxy(profile.Proxy)}");
-            if (!profile.Ok && !string.IsNullOrWhiteSpace(profile.Error))
-            {
-                Console.WriteLine($"\t{profile.Error}");
-            }
-        }
-
+        PrintProfiles(result);
         Console.WriteLine(
             $"{(result.DryRun ? "Planned" : "Created")} {result.Success}/{result.Total}. Saved {settings.OutputFile}");
-        if (result.Failed > 0 && geeLark?.LastRawResponse is { Length: > 0 } raw)
-        {
-            var dump = Path.Combine(
-                Path.GetDirectoryName(Path.GetFullPath(settings.OutputFile)) ?? "data",
-                "last-geelark-create.json");
-            Directory.CreateDirectory(Path.GetDirectoryName(dump)!);
-            File.WriteAllText(dump, raw);
-            Console.Error.WriteLine($"Wrote last GeeLark response to {dump}");
-        }
+        DumpLastGeeLarkResponse(settings, geeLark, result.Failed > 0, "last-geelark-create.json");
 
         return result.Failed == 0 ? 0 : 1;
     }
@@ -205,6 +186,79 @@ proxiesCommand.SetAction(async (parseResult, cancellationToken) =>
     }
 });
 
+var checkCountOption = new Option<int>("--count", "-n")
+{
+    Description = "How many FloppyData sessions to allocate and probe. Default 1.",
+    DefaultValueFactory = _ => 1,
+};
+var checkProxyModeOption = new Option<string?>("--proxy-mode")
+{
+    Description = "rotating or static. Default: rotating.",
+};
+var checkProxyTypeOption = new Option<string?>("--proxy-type")
+{
+    Description = "residential, mobile, or datacenter. Default: mobile.",
+};
+var checkCountryOption = new Option<string?>("--country")
+{
+    Description = "ISO country code for rotating proxies.",
+};
+var checkProtocolOption = new Option<string?>("--protocol")
+{
+    Description = "http, https, or socks5. Default: http.",
+};
+var checkCommand = new Command("check", "Probe FloppyData and GeeLark checkers without creating phones")
+{
+    checkCountOption,
+    checkProxyModeOption,
+    checkProxyTypeOption,
+    checkCountryOption,
+    checkProtocolOption,
+};
+checkCommand.SetAction(async (parseResult, cancellationToken) =>
+{
+    try
+    {
+        var settings = AppSettings.FromEnvironment().With(
+            proxyMode: parseResult.GetValue(checkProxyModeOption),
+            proxyType: parseResult.GetValue(checkProxyTypeOption),
+            proxyCountry: parseResult.GetValue(checkCountryOption),
+            proxyProtocol: parseResult.GetValue(checkProtocolOption));
+        settings.RequireFloppyData();
+        settings.RequireGeeLark();
+        Console.WriteLine(settings.DescribeProxy());
+
+        using var floppyHttp = CreateHttp(settings.TimeoutSeconds);
+        using var geeLarkHttp = CreateHttp(settings.TimeoutSeconds);
+        var geeLark = new GeeLarkClient(geeLarkHttp, settings);
+        var creator = new ProfileCreator(
+            new FloppyDataClient(floppyHttp, settings),
+            geeLark,
+            settings);
+        var result = await creator.CreateAsync(
+            new CreateRequest
+            {
+                Count = parseResult.GetValue(checkCountOption),
+                CheckOnly = true,
+                SessionPrefix = "check",
+            },
+            cancellationToken);
+
+        PrintProfiles(result);
+        var saved = Path.Combine(
+            Path.GetDirectoryName(Path.GetFullPath(settings.OutputFile)) ?? "data",
+            "last-proxy-check.json");
+        Console.WriteLine($"Checked {result.Success}/{result.Total}. Saved {saved}");
+        DumpLastGeeLarkResponse(settings, geeLark, result.Failed > 0, "last-geelark-proxy.json");
+        return result.Failed == 0 ? 0 : 1;
+    }
+    catch (Exception ex) when (ex is FloppyDataException or GeeLarkException or InvalidOperationException or FormatException or ArgumentOutOfRangeException)
+    {
+        Console.Error.WriteLine(ex.Message);
+        return 1;
+    }
+});
+
 var phonesCommand = new Command("phones", "List GeeLark cloud-phone profiles");
 var pageOption = new Option<int>("--page") { DefaultValueFactory = _ => 1 };
 var pageSizeOption = new Option<int>("--page-size") { DefaultValueFactory = _ => 20 };
@@ -240,11 +294,47 @@ phonesCommand.SetAction(async (parseResult, cancellationToken) =>
 var root = new RootCommand("Create GeeLark cloud-phone profiles and attach FloppyData proxies")
 {
     createCommand,
+    checkCommand,
     proxiesCommand,
     phonesCommand,
 };
 
 return root.Parse(args).Invoke();
+
+static void PrintProfiles(CreateResult result)
+{
+    foreach (var profile in result.Profiles)
+    {
+        var status = profile.Ok ? "OK" : "FAIL";
+        var id = profile.Id ?? "-";
+        var login = profile.Login ?? "-";
+        Console.WriteLine($"{status}\t{profile.ProfileName}\t{id}\t{login}\t{NameUtil.RedactProxy(profile.Proxy)}");
+        foreach (var line in profile.Diagnostics)
+        {
+            Console.WriteLine($"\t{line}");
+        }
+
+        if (!profile.Ok && !string.IsNullOrWhiteSpace(profile.Error))
+        {
+            Console.WriteLine($"\t{profile.Error}");
+        }
+    }
+}
+
+static void DumpLastGeeLarkResponse(AppSettings settings, GeeLarkClient? geeLark, bool failed, string fileName)
+{
+    if (!failed || geeLark?.LastRawResponse is not { Length: > 0 } raw)
+    {
+        return;
+    }
+
+    var dump = Path.Combine(
+        Path.GetDirectoryName(Path.GetFullPath(settings.OutputFile)) ?? "data",
+        fileName);
+    Directory.CreateDirectory(Path.GetDirectoryName(dump)!);
+    File.WriteAllText(dump, raw);
+    Console.Error.WriteLine($"Wrote last GeeLark response to {dump}");
+}
 
 static HttpClient CreateHttp(int timeoutSeconds)
 {

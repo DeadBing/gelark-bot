@@ -25,6 +25,7 @@ public sealed class ProxyEndpoint
     public string? Ip { get; init; }
     public string? Session { get; init; }
     public int? StaticId { get; init; }
+    public int? GeeLarkSerial { get; init; }
 }
 
 public sealed class ProfilePlan
@@ -35,6 +36,9 @@ public sealed class ProfilePlan
     public string ProfileNote { get; init; } = "";
     public IReadOnlyList<string> ProfileTags { get; init; } = [];
     public string? ProfileGroup { get; init; }
+    public int? ProxyNumber { get; init; }
+    public int? ProxyQueryChannel { get; init; }
+    public IReadOnlyList<string> Diagnostics { get; init; } = [];
 }
 
 public sealed class CreatedProfile
@@ -51,6 +55,7 @@ public sealed class CreatedProfile
     public string Note { get; init; } = "";
     public string? Error { get; init; }
     public Dictionary<string, object?> Equipment { get; init; } = new();
+    public IReadOnlyList<string> Diagnostics { get; init; } = [];
 
     public static CreatedProfile FromPlan(
         ProfilePlan plan,
@@ -58,7 +63,8 @@ public sealed class CreatedProfile
         string? phoneId = null,
         string? envSerialNo = null,
         string? error = null,
-        Dictionary<string, object?>? equipment = null)
+        Dictionary<string, object?>? equipment = null,
+        IReadOnlyList<string>? diagnostics = null)
     {
         return new CreatedProfile
         {
@@ -74,6 +80,7 @@ public sealed class CreatedProfile
             Note = plan.ProfileNote,
             Error = error,
             Equipment = equipment ?? new Dictionary<string, object?>(),
+            Diagnostics = diagnostics ?? plan.Diagnostics,
         };
     }
 }
@@ -95,6 +102,7 @@ public sealed class CreateRequest
     public string NamePrefix { get; init; } = "gl";
     public bool NameFromEmail { get; init; } = true;
     public string SessionPrefix { get; init; } = "gelark";
+    public bool CheckOnly { get; init; }
 }
 
 public sealed class GeeLarkException : Exception
@@ -184,12 +192,32 @@ internal sealed class CreatePhonesBody
 internal sealed class EnvRow
 {
     public required string ProfileName { get; set; }
-    public required string ProxyInformation { get; set; }
+    public string? ProxyInformation { get; set; }
+    public int? ProxyNumber { get; set; }
     public string? MobileLanguage { get; set; }
     public string? ProfileGroup { get; set; }
     public List<string>? ProfileTags { get; set; }
     public string? ProfileNote { get; set; }
     public int? ProxyQueryChannel { get; set; }
+}
+
+internal sealed class ProxyListData
+{
+    public int Total { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public List<ProxyListItem> List { get; set; } = [];
+}
+
+internal sealed class ProxyListItem
+{
+    public string? Id { get; set; }
+    public int SerialNo { get; set; }
+    public string? Scheme { get; set; }
+    public string? Server { get; set; }
+    public int Port { get; set; }
+    public string? Username { get; set; }
+    public string? Password { get; set; }
 }
 
 internal sealed class FloppyErrorBody

@@ -181,6 +181,43 @@ public class FloppyDataClientTests
     }
 
     [Fact]
+    public async Task Check_UsesStructuredFieldsWhenPresent()
+    {
+        var handler = new ScriptedHandler
+        {
+            Responder = (_, body) =>
+            {
+                Assert.Contains("\"host\":\"geo.g-w.info\"", body);
+                Assert.Contains("\"port\":10080", body);
+                return TestHttp.Json("""
+                    {
+                      "ip": "8.8.8.8",
+                      "location": { "countryCode": "US", "country": "United States" }
+                    }
+                    """);
+            },
+        };
+        using var http = new HttpClient(handler);
+        var client = new FloppyDataClient(http, TestHttp.Settings());
+
+        var check = await client.CheckAsync(new ProxyEndpoint
+        {
+            ConnectionString = "http://u:p@geo.g-w.info:10080",
+            Source = "rotating",
+            Protocol = "http",
+            Host = "geo.g-w.info",
+            Port = 10080,
+            Username = "u",
+            Password = "p",
+        });
+
+        Assert.True(check.Ok);
+        Assert.Equal("8.8.8.8", check.Ip);
+        Assert.Equal("US", check.Country);
+        Assert.EndsWith("/v2/proxy/check", handler.Requests[0].Uri.AbsolutePath);
+    }
+
+    [Fact]
     public async Task Error_UsesFloppyMessage()
     {
         var handler = new ScriptedHandler

@@ -46,9 +46,7 @@ internal static class GeeLarkCreateParser
 
             if (IsProxyCheckFailure(error))
             {
-                error =
-                    "check proxy failed: GeeLark could not probe this FloppyData endpoint. " +
-                    "Their checker often fails on SOCKS5 geo.g-w.info:10800. Retry with --protocol http.";
+                error = ExplainProxyCheckFailure(plan);
             }
 
             results.Add(CreatedProfile.FromPlan(plan, false, error: error, phoneId: item.PhoneId));
@@ -136,6 +134,26 @@ internal static class GeeLarkCreateParser
     internal static bool IsProxyCheckFailure(string? message) =>
         !string.IsNullOrWhiteSpace(message) &&
         message.Contains("check proxy failed", StringComparison.OrdinalIgnoreCase);
+
+    internal static string ExplainProxyCheckFailure(ProfilePlan plan)
+    {
+        var parsed = ProxyUrl.Parse(plan.Proxy);
+        var endpoint = $"{parsed.Protocol ?? "http"}://{parsed.Host}:{parsed.Port}";
+        var parts = new List<string>
+        {
+            $"check proxy failed: GeeLark could not use {endpoint}.",
+        };
+        if (plan.Diagnostics.Count > 0)
+        {
+            parts.Add(string.Join(" ", plan.Diagnostics));
+        }
+
+        parts.Add(
+            "HTTP vs SOCKS5 is not the issue — GeeLark already fails on FloppyData geo.g-w.info for both. " +
+            "Paste the same host/port/user/pass in GeeLark → Proxies → Check proxy. " +
+            "If that also fails, their cloud cannot reach FloppyData's gateway.");
+        return string.Join(" ", parts);
+    }
 
     private static bool IsSuccessMessage(string? message) =>
         string.Equals(message?.Trim(), "success", StringComparison.OrdinalIgnoreCase) ||

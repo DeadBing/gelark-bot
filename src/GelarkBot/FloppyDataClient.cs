@@ -104,6 +104,60 @@ public sealed class FloppyDataClient
         };
     }
 
+    public async Task<ProxyCheckResult> CheckAsync(ProxyEndpoint proxy, CancellationToken cancellationToken = default)
+    {
+        var parsed = ProxyUrl.Parse(proxy);
+        object body;
+        if (!string.IsNullOrWhiteSpace(parsed.Host) && parsed.Port is > 0 && !string.IsNullOrWhiteSpace(parsed.Username))
+        {
+            body = new
+            {
+                host = parsed.Host,
+                port = parsed.Port,
+                username = parsed.Username,
+                password = parsed.Password ?? "",
+                protocol = parsed.Protocol ?? "http",
+            };
+        }
+        else
+        {
+            body = new { connectionString = parsed.ConnectionString };
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, HttpUrl.Combine(_settings.FloppyDataBaseUrl, "/v2/proxy/check"));
+        request.Headers.TryAddWithoutValidation("X-Api-Key", _settings.FloppyDataApiKey);
+        request.Content = JsonContent.Create(body, options: JsonUtil.Options);
+        using var response = await _http.SendAsync(request, cancellationToken);
+        var text = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return new ProxyCheckResult
+            {
+                Source = "FloppyData",
+                Ok = false,
+                Message = FormatError(text, (int)response.StatusCode),
+            };
+        }
+
+        using var document = JsonDocument.Parse(string.IsNullOrWhiteSpace(text) ? "{}" : text);
+        var root = document.RootElement;
+        var ip = root.TryGetProperty("ip", out var ipEl) ? ipEl.GetString() : null;
+        string? country = null;
+        if (root.TryGetProperty("location", out var location) && location.ValueKind == JsonValueKind.Object)
+        {
+            country = location.TryGetProperty("countryCode", out var cc) ? cc.GetString() : null;
+        }
+
+        return new ProxyCheckResult
+        {
+            Source = "FloppyData",
+            Ok = !string.IsNullOrWhiteSpace(ip),
+            Ip = ip,
+            Country = country,
+            Message = string.IsNullOrWhiteSpace(ip) ? "no exit IP" : null,
+        };
+    }
+
     public async Task<IReadOnlyList<ProxyEndpoint>> AllocateAsync(
         int count,
         string sessionPrefix = "gelark",

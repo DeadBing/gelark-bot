@@ -69,6 +69,145 @@ public sealed class GeeLarkClient
         return payload.Data ?? new PhoneListData();
     }
 
+    public async Task<ProxyCheckResult> CheckProxyAsync(
+        ProxyEndpoint proxy,
+        string? queryChannel = null,
+        CancellationToken cancellationToken = default)
+    {
+        var parsed = ProxyUrl.Parse(proxy);
+        var channel = queryChannel ?? (_settings.ProxyQueryChannel == 2 ? "IP2Location" : "IP-API");
+        var body = new
+        {
+            proxyQueryChannel = channel,
+            proxyType = string.IsNullOrWhiteSpace(parsed.Protocol) ? "http" : parsed.Protocol,
+            server = parsed.Host,
+            port = parsed.Port,
+            username = parsed.Username,
+            password = parsed.Password,
+        };
+        using var document = await PostDocumentAsync("/open/v1/proxy/check", body, cancellationToken);
+        var root = document.RootElement;
+        var topCode = root.TryGetProperty("code", out var codeEl) && codeEl.TryGetInt32(out var parsedCode)
+            ? parsedCode
+            : -1;
+        var topMsg = root.TryGetProperty("msg", out var msgEl) && msgEl.ValueKind == JsonValueKind.String
+            ? msgEl.GetString()
+            : null;
+        if (topCode != 0 || !root.TryGetProperty("data", out var data))
+        {
+            return new ProxyCheckResult
+            {
+                Source = "GeeLark",
+                Ok = false,
+                Message = topMsg ?? $"code {topCode}",
+            };
+        }
+
+        var ok = IsDetectOk(data);
+        var message = data.TryGetProperty("message", out var messageEl) && messageEl.ValueKind == JsonValueKind.String
+            ? messageEl.GetString()
+            : topMsg;
+        var ip = data.TryGetProperty("outboundIP", out var ipEl) ? ipEl.GetString() : null;
+        var country = data.TryGetProperty("countryName", out var countryEl) ? countryEl.GetString() : null;
+        return new ProxyCheckResult
+        {
+            Source = "GeeLark",
+            Ok = ok,
+            Ip = ip,
+            Country = country,
+            Message = ok ? null : string.IsNullOrWhiteSpace(message) ? "detectStatus=false" : message,
+        };
+    }
+
+    public async Task<int> AddOrGetSerialAsync(
+        ProxyEndpoint proxy,
+        int? queryChannel = null,
+        CancellationToken cancellationToken = default)
+    {
+        var parsed = ProxyUrl.Parse(proxy);
+        var body = new
+        {
+            list = new[]
+            {
+                new
+                {
+                    scheme = string.IsNullOrWhiteSpace(parsed.Protocol) ? "http" : parsed.Protocol,
+                    server = parsed.Host,
+                    port = parsed.Port,
+                    username = parsed.Username,
+                    password = parsed.Password,
+                    proxyQueryChannel = queryChannel ?? _settings.ProxyQueryChannel,
+                },
+            },
+        };
+        using var document = await PostDocumentAsync("/open/v1/proxy/add", body, cancellationToken);
+        var root = document.RootElement;
+        var id = ReadAddedProxyId(root);
+        if (!string.IsNullOrWhiteSpace(id))
+        {
+            var serial = await FindSerialAsync(id, parsed, cancellationToken);
+            if (serial is int number)
+            {
+                return number;
+            }
+        }
+
+        var existing = await FindSerialAsync(null, parsed, cancellationToken);
+        if (existing is int found)
+        {
+            return found;
+        }
+
+        var msg = root.TryGetProperty("msg", out var msgEl) ? msgEl.GetString() : "add proxy failed";
+        var code = root.TryGetProperty("code", out var codeEl) && codeEl.TryGetInt32(out var parsedCode)
+            ? parsedCode
+            : (int?)null;
+        throw new GeeLarkException($"GeeLark add proxy failed: {msg}", code);
+    }
+
+    private static string? ReadAddedProxyId(JsonElement root)
+    {
+        if (!root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        if (data.TryGetProperty("successDetails", out var success) && success.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in success.EnumerateArray())
+            {
+                if (item.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String)
+                {
+                    return id.GetString();
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private async Task<int?> FindSerialAsync(string? id, ProxyEndpoint proxy, CancellationToken cancellationToken)
+    {
+        var body = string.IsNullOrWhiteSpace(id)
+            ? (object)new { page = 1, pageSize = 100 }
+            : new { page = 1, pageSize = 10, ids = new[] { id } };
+        var payload = await PostAsync<ProxyListData>("/open/v1/proxy/list", body, cancellationToken);
+        if (payload.Code != 0)
+        {
+            return null;
+        }
+
+        var items = payload.Data?.List ?? [];
+        var match = items.FirstOrDefault(item =>
+            (!string.IsNullOrWhiteSpace(id) && item.Id == id) ||
+            (string.Equals(item.Server, proxy.Host, StringComparison.OrdinalIgnoreCase) &&
+             item.Port == proxy.Port &&
+             string.Equals(item.Username, proxy.Username, StringComparison.Ordinal)));
+        return match is { SerialNo: > 0 } found
+            ? found.SerialNo
+            : items.FirstOrDefault(item => item.SerialNo > 0)?.SerialNo;
+    }
+
     private async Task<IReadOnlyList<CreatedProfile>> CreateBatchAsync(
         IReadOnlyList<ProfilePlan> plans,
         CancellationToken cancellationToken)
@@ -102,15 +241,34 @@ public sealed class GeeLarkClient
 
     private EnvRow ToEnvRow(ProfilePlan plan)
     {
+        var parsed = ProxyUrl.Parse(plan.Proxy);
         return new EnvRow
         {
             ProfileName = plan.ProfileName,
-            ProxyInformation = plan.Proxy.ConnectionString,
+            ProxyInformation = plan.ProxyNumber is > 0 ? null : ProxyUrl.ForGeeLark(parsed),
+            ProxyNumber = plan.ProxyNumber is > 0 ? plan.ProxyNumber : null,
             MobileLanguage = _settings.Language,
             ProfileGroup = plan.ProfileGroup,
             ProfileTags = plan.ProfileTags.ToList(),
             ProfileNote = plan.ProfileNote,
-            ProxyQueryChannel = _settings.ProxyQueryChannel,
+            ProxyQueryChannel = plan.ProxyQueryChannel ?? _settings.ProxyQueryChannel,
+        };
+    }
+
+    private static bool IsDetectOk(JsonElement data)
+    {
+        if (!data.TryGetProperty("detectStatus", out var statusEl))
+        {
+            return false;
+        }
+
+        return statusEl.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.Number => statusEl.TryGetInt32(out var value) && value == 1,
+            JsonValueKind.String => string.Equals(statusEl.GetString(), "true", StringComparison.OrdinalIgnoreCase) ||
+                                    statusEl.GetString() == "1",
+            _ => false,
         };
     }
 

@@ -38,6 +38,7 @@ dotnet run --project src/GelarkBot.Cli -- create --emails accounts.txt --group q
 | Команда | Назначение |
 | --- | --- |
 | `create` | Взять прокси и создать профили |
+| `check` | Проверить FloppyData и чекер GeeLark, не создавая телефоны |
 | `proxies` | Показать static-инвентарь FloppyData |
 | `phones` | Показать уже существующие профили GeeLark |
 
@@ -55,7 +56,21 @@ dotnet run --project src/GelarkBot.Cli -- create --emails accounts.txt --group q
 
 ## Прокси
 
-По умолчанию бот **сам создаёт** sticky mobile-прокси из баланса FloppyData (`POST /v2/proxy/rotating/connections`, `type=mobile`, `rotation=0`, уникальный `session` на профиль). Для GeeLark лучше `--protocol http` (их чекер часто валит SOCKS5 `geo.g-w.info:10800` с `check proxy failed`).
+По умолчанию бот **сам создаёт** sticky mobile-прокси из баланса FloppyData (`POST /v2/proxy/rotating/connections`, `type=mobile`, `rotation=0`, уникальный `session` на профиль).
+
+Перед `phone/addNew` бот:
+
+1. проверяет прокси у FloppyData
+2. шлёт в GeeLark **структурированные** поля (`server`/`port`/`username`/`password`), не сырой `user:pass@host` URL
+3. если чекер GeeLark падает на hostname — резолвит IPv4 `geo.g-w.info` и пробует ещё раз
+4. если падает IP-API — переключает канал на IP2Location
+5. при успехе добавляет прокси в GeeLark и создаёт телефон через `proxyNumber`
+
+`check proxy failed` на HTTP `geo.g-w.info:10080` **и** на SOCKS5 `:10800` значит, что облако GeeLark не достучалось до шлюза FloppyData. Это не лечится `--protocol http`. Проверь ту же связку в GeeLark → Proxies → Check proxy. Если UI тоже красный — нужен провайдер из Dynamic proxy GeeLark или другой хост, который их чекер видит.
+
+```bash
+dotnet run --project src/GelarkBot.Cli -- check --count 1 --proxy-mode rotating --proxy-type mobile --country US --protocol http
+```
 
 `Need N static FloppyData proxies in US, found 0` значит, что в `.env` всё ещё `PROXY_MODE=static`: бот ищет уже купленные dedicated IP и баланс не трогает. Поставь `PROXY_MODE=rotating` и `PROXY_TYPE=mobile` или:
 
@@ -65,7 +80,7 @@ dotnet run --project src/GelarkBot.Cli -- create --count 3 --proxy-mode rotating
 
 Команда `proxies` показывает только static-инвентарь, не rotating-баланс.
 
-В GeeLark прокси уходит как `proxyInformation` в `POST /open/v1/phone/addNew`.
+В GeeLark прокси уходит как сохранённый `proxyNumber` или как `proxyInformation` в формате `http://host:port:user:pass`.
 
 ## Файл аккаунтов
 
