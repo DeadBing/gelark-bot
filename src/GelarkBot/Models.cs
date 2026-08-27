@@ -203,8 +203,15 @@ internal sealed class StaticProxyItem
     public string? Ip { get; set; }
     public string? ProxyType { get; set; }
     public string? CountryCode { get; set; }
+    public string? Country { get; set; }
     public string? CountryName { get; set; }
     public FloppyConnection? Connection { get; set; }
+}
+
+public sealed class StaticInventory
+{
+    public IReadOnlyList<ProxyEndpoint> Items { get; init; } = [];
+    public int PendingCount { get; init; }
 }
 
 internal sealed class FloppyConnection

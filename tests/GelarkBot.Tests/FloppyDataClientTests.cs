@@ -106,6 +106,78 @@ public class FloppyDataClientTests
 
         var ex = await Assert.ThrowsAsync<FloppyDataException>(() => client.AllocateAsync(1));
         Assert.Contains("found 0", ex.Message);
+        Assert.Contains("no assigned static IPs", ex.Message);
+        Assert.Contains("--proxy-mode rotating", ex.Message);
+    }
+
+    [Fact]
+    public async Task Allocate_Static_ExplainsOtherCountries()
+    {
+        var handler = new ScriptedHandler
+        {
+            Responder = (_, _) => TestHttp.Json("""
+                {
+                  "items": [
+                    {
+                      "id": 2,
+                      "ip": "2.2.2.2",
+                      "proxyType": "isp",
+                      "countryCode": "DE",
+                      "countryName": "Germany",
+                      "connection": {
+                        "host": "2.2.2.2",
+                        "port": 1080,
+                        "username": "u",
+                        "password": "p",
+                        "connectionString": "http://u:p@2.2.2.2:1080"
+                      }
+                    }
+                  ],
+                  "pendingCount": 0
+                }
+                """),
+        };
+        using var http = new HttpClient(handler);
+        var client = new FloppyDataClient(http, TestHttp.Settings(country: "US"));
+
+        var ex = await Assert.ThrowsAsync<FloppyDataException>(() => client.AllocateAsync(3));
+        Assert.Contains("in US, found 0", ex.Message);
+        Assert.Contains("DE:1", ex.Message);
+        Assert.Contains("--country", ex.Message);
+    }
+
+    [Fact]
+    public async Task ListStatic_BuildsConnectionStringFromParts()
+    {
+        var handler = new ScriptedHandler
+        {
+            Responder = (_, _) => TestHttp.Json("""
+                {
+                  "items": [
+                    {
+                      "id": 9,
+                      "ip": "9.9.9.9",
+                      "country": "gb",
+                      "connection": {
+                        "protocol": "socks5",
+                        "host": "9.9.9.9",
+                        "port": 1080,
+                        "username": "u",
+                        "password": "p"
+                      }
+                    }
+                  ],
+                  "pendingCount": 1
+                }
+                """),
+        };
+        using var http = new HttpClient(handler);
+        var client = new FloppyDataClient(http, TestHttp.Settings());
+
+        var inventory = await client.ListStaticInventoryAsync();
+        Assert.Equal(1, inventory.PendingCount);
+        Assert.Equal("GB", inventory.Items[0].Country);
+        Assert.Equal("socks5://u:p@9.9.9.9:1080", inventory.Items[0].ConnectionString);
     }
 
     [Fact]

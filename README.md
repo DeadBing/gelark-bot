@@ -55,8 +55,14 @@ dotnet run --project src/GelarkBot.Cli -- create --emails accounts.txt --group q
 
 ## Прокси
 
-- **static** — `GET /v2/proxy/static`, в профиль уходит `connection.connectionString`
+- **static** — `GET /v2/proxy/static`, в профиль уходит `connection.connectionString`. Это только купленные закреплённые IP, не GB-трафик.
 - **rotating** — `POST /v2/proxy/rotating/connections` с уникальным `session` и `rotation=0` (липкая сессия на профиль)
+
+Если `create` пишет `Need N static FloppyData proxies in US, found 0`, сначала `proxies` (покажет весь инвентарь). Нет static IP — почти наверняка на аккаунте rotating/GB:
+
+```bash
+dotnet run --project src/GelarkBot.Cli -- create --count 3 --proxy-mode rotating --country US
+```
 
 В GeeLark прокси передаётся как `proxyInformation` в `POST /open/v1/phone/addNew`.
 

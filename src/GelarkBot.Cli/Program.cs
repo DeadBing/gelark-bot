@@ -155,6 +155,11 @@ createCommand.SetAction(async (parseResult, cancellationToken) =>
 });
 
 var proxiesCommand = new Command("proxies", "List FloppyData static proxies");
+var proxiesCountryOption = new Option<string?>("--country")
+{
+    Description = "Optional country filter. Default: show the full static inventory.",
+};
+proxiesCommand.Options.Add(proxiesCountryOption);
 proxiesCommand.SetAction(async (parseResult, cancellationToken) =>
 {
     try
@@ -163,14 +168,22 @@ proxiesCommand.SetAction(async (parseResult, cancellationToken) =>
         settings.RequireFloppyData();
         using var http = CreateHttp(settings.TimeoutSeconds);
         var client = new FloppyDataClient(http, settings);
-        var country = string.IsNullOrWhiteSpace(settings.ProxyCountry) ? null : settings.ProxyCountry;
-        var items = await client.ListStaticProxiesAsync(country, cancellationToken);
+        var inventory = await client.ListStaticInventoryAsync(cancellationToken);
+        var country = parseResult.GetValue(proxiesCountryOption);
+        var items = string.IsNullOrWhiteSpace(country)
+            ? inventory.Items
+            : inventory.Items.Where(item => string.Equals(item.Country, country, StringComparison.OrdinalIgnoreCase)).ToList();
         foreach (var item in items)
         {
             Console.WriteLine($"{item.StaticId}\t{item.Country}\t{item.Ip}\t{NameUtil.RedactProxy(item.ConnectionString)}");
         }
 
-        Console.WriteLine($"Total: {items.Count}");
+        Console.WriteLine($"Total: {items.Count}. Pending: {inventory.PendingCount}.");
+        if (inventory.Items.Count == 0)
+        {
+            Console.WriteLine("No assigned static IPs. If you bought rotating traffic (GB), use --proxy-mode rotating.");
+        }
+
         return 0;
     }
     catch (Exception ex) when (ex is FloppyDataException or InvalidOperationException)
