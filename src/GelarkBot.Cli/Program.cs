@@ -147,6 +147,16 @@ createCommand.SetAction(async (parseResult, cancellationToken) =>
 
         Console.WriteLine(
             $"{(result.DryRun ? "Planned" : "Created")} {result.Success}/{result.Total}. Saved {settings.OutputFile}");
+        if (result.Failed > 0 && geeLark?.LastRawResponse is { Length: > 0 } raw)
+        {
+            var dump = Path.Combine(
+                Path.GetDirectoryName(Path.GetFullPath(settings.OutputFile)) ?? "data",
+                "last-geelark-create.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(dump)!);
+            File.WriteAllText(dump, raw);
+            Console.Error.WriteLine($"Wrote last GeeLark response to {dump}");
+        }
+
         return result.Failed == 0 ? 0 : 1;
     }
     catch (Exception ex) when (ex is FloppyDataException or GeeLarkException or InvalidOperationException or FormatException or ArgumentOutOfRangeException)

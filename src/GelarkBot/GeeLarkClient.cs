@@ -10,6 +10,8 @@ public sealed class GeeLarkClient
     private readonly HttpClient _http;
     private readonly AppSettings _settings;
 
+    public string? LastRawResponse { get; private set; }
+
     public GeeLarkClient(HttpClient http, AppSettings settings)
     {
         _settings = settings;
@@ -79,46 +81,23 @@ public sealed class GeeLarkClient
             Data = plans.Select(ToEnvRow).ToList(),
         };
 
-        var payload = await PostAsync<CreatePhonesData>("/open/v1/phone/addNew", body, cancellationToken);
-        if (payload.Code is not (0 or 40006))
+        using var document = await PostDocumentAsync("/open/v1/phone/addNew", body, cancellationToken);
+        var root = document.RootElement;
+        var topCode = root.TryGetProperty("code", out var codeEl) && codeEl.TryGetInt32(out var parsedCode)
+            ? parsedCode
+            : -1;
+        var topMsg = root.TryGetProperty("msg", out var msgEl) && msgEl.ValueKind == JsonValueKind.String
+            ? msgEl.GetString()
+            : null;
+        if (topCode is not (0 or 40006))
         {
-            throw new GeeLarkException($"GeeLark create failed: {payload.Msg ?? payload.Code.ToString()}", payload.Code);
+            throw new GeeLarkException($"GeeLark create failed: {topMsg ?? topCode.ToString()}", topCode);
         }
 
-        var details = payload.Data?.Details ?? [];
-        var byName = details
-            .Where(item => !string.IsNullOrWhiteSpace(item.ProfileName))
-            .ToDictionary(item => item.ProfileName!, item => item, StringComparer.Ordinal);
-        var byIndex = details
-            .Where(item => item.Index != 0)
-            .ToDictionary(item => item.Index, item => item);
-
-        var results = new List<CreatedProfile>();
-        for (var offset = 0; offset < plans.Count; offset++)
-        {
-            var plan = plans[offset];
-            if (!byName.TryGetValue(plan.ProfileName, out var item) &&
-                !byIndex.TryGetValue(offset + 1, out item))
-            {
-                results.Add(CreatedProfile.FromPlan(plan, false, error: payload.Msg ?? "GeeLark did not return this profile"));
-                continue;
-            }
-
-            if (item.Code == 0)
-            {
-                results.Add(CreatedProfile.FromPlan(
-                    plan,
-                    true,
-                    item.Id,
-                    item.EnvSerialNo,
-                    equipment: item.EquipmentInfo));
-                continue;
-            }
-
-            results.Add(CreatedProfile.FromPlan(plan, false, error: item.Msg ?? item.Code.ToString()));
-        }
-
-        return results;
+        var details = root.TryGetProperty("data", out var data)
+            ? GeeLarkCreateParser.ReadDetails(data)
+            : [];
+        return GeeLarkCreateParser.Map(plans, topCode, topMsg, details);
     }
 
     private EnvRow ToEnvRow(ProfilePlan plan)
@@ -145,6 +124,7 @@ public sealed class GeeLarkClient
         request.Content = JsonContent.Create(body, options: JsonUtil.Options);
         using var response = await _http.SendAsync(request, cancellationToken);
         var text = await response.Content.ReadAsStringAsync(cancellationToken);
+        LastRawResponse = text;
         GeeLarkEnvelope<T>? payload;
         try
         {
@@ -161,6 +141,39 @@ public sealed class GeeLarkClient
         }
 
         return payload ?? throw new GeeLarkException("Unexpected GeeLark payload");
+    }
+
+    private async Task<JsonDocument> PostDocumentAsync(string path, object body, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, HttpUrl.Combine(_settings.GeeLarkBaseUrl, path));
+        foreach (var header in BuildHeaders())
+        {
+            request.Headers.TryAddWithoutValidation(header.Key, header.Value);
+        }
+
+        request.Content = JsonContent.Create(body, options: JsonUtil.Options);
+        using var response = await _http.SendAsync(request, cancellationToken);
+        var text = await response.Content.ReadAsStringAsync(cancellationToken);
+        LastRawResponse = text;
+        JsonDocument document;
+        try
+        {
+            document = JsonDocument.Parse(string.IsNullOrWhiteSpace(text) ? "{}" : text);
+        }
+        catch (JsonException)
+        {
+            throw new GeeLarkException($"GeeLark returned non-JSON ({(int)response.StatusCode}): {text[..Math.Min(text.Length, 300)]}");
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var code = document.RootElement.TryGetProperty("code", out var codeEl) && codeEl.TryGetInt32(out var parsed)
+                ? parsed
+                : (int?)null;
+            throw new GeeLarkException($"GeeLark HTTP {(int)response.StatusCode}: {text}", code);
+        }
+
+        return document;
     }
 
     private Dictionary<string, string> BuildHeaders()

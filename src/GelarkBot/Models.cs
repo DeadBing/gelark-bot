@@ -135,13 +135,25 @@ internal sealed class CreatePhonesData
 
 internal sealed class CreatePhoneDetail
 {
-    public int Index { get; set; }
+    public int? Index { get; set; }
     public int Code { get; set; }
     public string? Msg { get; set; }
     public string? Id { get; set; }
+    public string? EnvId { get; set; }
     public string? ProfileName { get; set; }
+    public string? SerialName { get; set; }
     public string? EnvSerialNo { get; set; }
+    public string? SerialNo { get; set; }
     public Dictionary<string, object?>? EquipmentInfo { get; set; }
+
+    public string? PhoneId => FirstNonEmpty(Id, EnvId);
+
+    public string? ReturnedName => FirstNonEmpty(ProfileName, SerialName);
+
+    public string? ReturnedSerial => FirstNonEmpty(EnvSerialNo, SerialNo);
+
+    private static string? FirstNonEmpty(params string?[] values) =>
+        values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
 }
 
 public sealed class PhoneListData
