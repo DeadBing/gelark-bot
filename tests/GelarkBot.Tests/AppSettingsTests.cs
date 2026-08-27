@@ -14,7 +14,7 @@ public class AppSettingsTests
             ProxyRotation = 0,
         };
 
-        Assert.Equal("FloppyData rotating mobile US sticky socks5", settings.DescribeProxy());
+        Assert.Equal("FloppyData mobile US sticky session (rotation=0, IP holds per profile), GB balance, socks5", settings.DescribeProxy());
     }
 
     [Fact]

@@ -129,8 +129,12 @@ public sealed class AppSettings
         var mode = ProxyMode.Trim().ToLowerInvariant();
         if (mode == "rotating")
         {
-            var session = ProxyRotation == 0 ? "sticky" : $"rotation={ProxyRotation}";
-            return $"FloppyData rotating {ProxyType} {ProxyCountry.ToUpperInvariant()} {session} {ProxyProtocol}";
+            var hold = ProxyRotation == 0
+                ? "sticky session (rotation=0, IP holds per profile)"
+                : ProxyRotation < 0
+                    ? "rotate every request"
+                    : $"rotate every {ProxyRotation} min";
+            return $"FloppyData {ProxyType} {ProxyCountry.ToUpperInvariant()} {hold}, GB balance, {ProxyProtocol}";
         }
 
         var country = string.IsNullOrWhiteSpace(ProxyCountry) ? "any country" : ProxyCountry.ToUpperInvariant();

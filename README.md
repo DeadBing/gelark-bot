@@ -57,7 +57,7 @@ dotnet run --project src/GelarkBot.Cli -- create --emails accounts.txt --group q
 
 ## Прокси
 
-По умолчанию бот **сам создаёт** sticky mobile-прокси из баланса FloppyData (`POST /v2/proxy/rotating/connections`, `type=mobile`, `rotation=0`, уникальный `session` на профиль).
+По умолчанию бот **сам создаёт sticky** mobile-прокси из **GB-баланса** FloppyData (`rotation=0`, уникальный `session` на профиль). Слово rotating в API FloppyData — это продукт «трафик в ГБ», не смена IP на каждый запрос. У трёх профилей будут три разных sticky-IP — так и надо.
 
 Перед `phone/addNew` бот:
 

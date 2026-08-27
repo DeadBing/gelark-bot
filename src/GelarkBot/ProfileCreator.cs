@@ -160,7 +160,12 @@ public sealed class ProfileCreator
         CancellationToken cancellationToken)
     {
         var parsed = ProxyUrl.Parse(plan.Proxy);
-        var diagnostics = new List<string>();
+        var diagnostics = new List<string>
+        {
+            _settings.ProxyRotation == 0
+                ? $"sticky session {parsed.Session ?? "-"} (rotation=0, one IP per profile)"
+                : $"session {parsed.Session ?? "-"} rotation={_settings.ProxyRotation}",
+        };
 
         var floppy = await SafeFloppyCheckAsync(parsed, cancellationToken);
         if (floppy is not null)
