@@ -26,9 +26,12 @@ public class EmailPoolTests
     }
 
     [Fact]
-    public void ParseLine_RejectsEmptyLogin()
+    public void ParseLine_RejectsEmptyLoginWithoutEchoingSecrets()
     {
-        Assert.Throws<FormatException>(() => EmailPool.ParseLine(":password:totp"));
+        var ex = Assert.Throws<FormatException>(() => EmailPool.ParseLine(":password:totp"));
+        Assert.Equal("Invalid account line: login is empty", ex.Message);
+        Assert.DoesNotContain("password", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("totp", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

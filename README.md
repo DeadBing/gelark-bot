@@ -17,14 +17,22 @@ cp .env.example .env
 
 ## Сборка и запуск
 
+Нужен .NET 8 SDK. Ключи кладутся в `.env` в корне репозитория.
+
 ```bash
+cp .env.example .env
+# GEELARK_TOKEN и FLOPPYDATA_API_KEY
+
 dotnet build
 dotnet run --project src/GelarkBot.Cli -- proxies
 dotnet run --project src/GelarkBot.Cli -- create --count 3 --dry-run
-dotnet run --project src/GelarkBot.Cli -- create --emails examples/emails.txt --group qa
+dotnet run --project src/GelarkBot.Cli -- create --count 3 --group qa
+dotnet run --project src/GelarkBot.Cli -- create --emails accounts.txt --group qa
 ```
 
 После `dotnet build` бинарник: `src/GelarkBot.Cli/bin/Debug/net8.0/gelark-bot`.
+
+`--dry-run` ходит в FloppyData, но не создаёт профили в GeeLark. Боевой `create` создаёт cloud phone, вешает прокси и пишет маппинг в `data/created-profiles.json`. Приложения не ставит, 2FA-коды не считает. В консоли строки `OK`/`FAIL`; код выхода `0` если все создались, `1` если были ошибки.
 
 ## Команды
 

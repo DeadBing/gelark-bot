@@ -14,7 +14,7 @@ public static class EmailPool
         var login = parts[0].Trim();
         if (login.Length == 0)
         {
-            throw new FormatException($"Invalid account line: {line}");
+            throw new FormatException("Invalid account line: login is empty");
         }
 
         string? password = null;
