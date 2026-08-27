@@ -189,6 +189,7 @@ internal sealed class EnvRow
     public string? ProfileGroup { get; set; }
     public List<string>? ProfileTags { get; set; }
     public string? ProfileNote { get; set; }
+    public int? ProxyQueryChannel { get; set; }
 }
 
 internal sealed class FloppyErrorBody

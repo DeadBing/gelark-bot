@@ -41,6 +41,7 @@ public sealed class ProfileCreator
             }
 
             profiles = await _geeLark.CreatePhonesAsync(plans, _settings.BatchSize, cancellationToken);
+            profiles = await RetryProxyCheckFailuresAsync(plans, profiles, cancellationToken);
         }
 
         var result = new CreateResult
@@ -54,6 +55,52 @@ public sealed class ProfileCreator
 
         WriteResult(_settings.OutputFile, result);
         return result;
+    }
+
+    private async Task<IReadOnlyList<CreatedProfile>> RetryProxyCheckFailuresAsync(
+        IReadOnlyList<ProfilePlan> plans,
+        IReadOnlyList<CreatedProfile> profiles,
+        CancellationToken cancellationToken)
+    {
+        if (_geeLark is null || _settings.ProxyMode.Trim().ToLowerInvariant() != "rotating")
+        {
+            return profiles;
+        }
+
+        var retried = profiles.ToList();
+        for (var i = 0; i < retried.Count; i++)
+        {
+            var profile = retried[i];
+            var plan = plans[i];
+            if (!GeeLarkCreateParser.IsProxyCheckFailure(profile.Error))
+            {
+                continue;
+            }
+
+            if (!string.Equals(plan.Proxy.Protocol, "socks5", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var session = plan.Proxy.Session ?? $"retry-{i + 1:000}";
+            var httpProxy = await _floppyData.CreateRotatingConnectionAsync(session, "http", cancellationToken);
+            var httpPlan = new ProfilePlan
+            {
+                ProfileName = plan.ProfileName,
+                Proxy = httpProxy,
+                Email = plan.Email,
+                ProfileNote = plan.ProfileNote,
+                ProfileTags = plan.ProfileTags,
+                ProfileGroup = plan.ProfileGroup,
+            };
+            var again = await _geeLark.CreatePhonesAsync([httpPlan], 1, cancellationToken);
+            if (again.Count > 0)
+            {
+                retried[i] = again[0];
+            }
+        }
+
+        return retried;
     }
 
     public static void WriteResult(string path, CreateResult result)

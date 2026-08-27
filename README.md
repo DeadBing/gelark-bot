@@ -55,7 +55,7 @@ dotnet run --project src/GelarkBot.Cli -- create --emails accounts.txt --group q
 
 ## Прокси
 
-По умолчанию бот **сам создаёт** sticky mobile-прокси из баланса FloppyData (`POST /v2/proxy/rotating/connections`, `type=mobile`, `rotation=0`, уникальный `session` на профиль). Баланс GB/mobile при этом тратится. Static IP покупать не нужно.
+По умолчанию бот **сам создаёт** sticky mobile-прокси из баланса FloppyData (`POST /v2/proxy/rotating/connections`, `type=mobile`, `rotation=0`, уникальный `session` на профиль). Для GeeLark лучше `--protocol http` (их чекер часто валит SOCKS5 `geo.g-w.info:10800` с `check proxy failed`).
 
 `Need N static FloppyData proxies in US, found 0` значит, что в `.env` всё ещё `PROXY_MODE=static`: бот ищет уже купленные dedicated IP и баланс не трогает. Поставь `PROXY_MODE=rotating` и `PROXY_TYPE=mobile` или:
 

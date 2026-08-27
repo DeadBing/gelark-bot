@@ -110,6 +110,7 @@ public sealed class GeeLarkClient
             ProfileGroup = plan.ProfileGroup,
             ProfileTags = plan.ProfileTags.ToList(),
             ProfileNote = plan.ProfileNote,
+            ProxyQueryChannel = _settings.ProxyQueryChannel,
         };
     }
 

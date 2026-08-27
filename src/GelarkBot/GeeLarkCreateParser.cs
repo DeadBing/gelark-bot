@@ -44,6 +44,13 @@ internal static class GeeLarkCreateParser
                 error = $"GeeLark detail code {item.Code}";
             }
 
+            if (IsProxyCheckFailure(error))
+            {
+                error =
+                    "check proxy failed: GeeLark could not probe this FloppyData endpoint. " +
+                    "Their checker often fails on SOCKS5 geo.g-w.info:10800. Retry with --protocol http.";
+            }
+
             results.Add(CreatedProfile.FromPlan(plan, false, error: error, phoneId: item.PhoneId));
         }
 
@@ -125,6 +132,10 @@ internal static class GeeLarkCreateParser
         return !string.IsNullOrWhiteSpace(item.PhoneId) &&
                (item.Code is 1 || IsSuccessMessage(item.Msg));
     }
+
+    internal static bool IsProxyCheckFailure(string? message) =>
+        !string.IsNullOrWhiteSpace(message) &&
+        message.Contains("check proxy failed", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsSuccessMessage(string? message) =>
         string.Equals(message?.Trim(), "success", StringComparison.OrdinalIgnoreCase) ||

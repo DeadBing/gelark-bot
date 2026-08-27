@@ -63,13 +63,15 @@ public sealed class FloppyDataClient
 
     public async Task<ProxyEndpoint> CreateRotatingConnectionAsync(
         string session,
+        string? protocol = null,
         CancellationToken cancellationToken = default)
     {
+        var usedProtocol = protocol ?? _settings.ProxyProtocol;
         var body = new RotatingConnectionRequest
         {
             Type = _settings.ProxyType,
             Country = _settings.ProxyCountry.ToUpperInvariant(),
-            Protocol = _settings.ProxyProtocol,
+            Protocol = usedProtocol,
             Rotation = _settings.ProxyRotation,
             City = _settings.ProxyCity,
             State = _settings.ProxyState,
@@ -91,7 +93,7 @@ public sealed class FloppyDataClient
         {
             ConnectionString = connectionString,
             Source = "rotating",
-            Protocol = payload.Connection?.Protocol ?? _settings.ProxyProtocol,
+            Protocol = payload.Connection?.Protocol ?? usedProtocol,
             Host = payload.Connection?.Host,
             Port = payload.Connection?.Port,
             Username = payload.Connection?.Username,
@@ -134,7 +136,7 @@ public sealed class FloppyDataClient
         var allocated = new List<ProxyEndpoint>(count);
         for (var i = 1; i <= count; i++)
         {
-            allocated.Add(await CreateRotatingConnectionAsync($"{sessionPrefix}-{i:000}", cancellationToken));
+            allocated.Add(await CreateRotatingConnectionAsync($"{sessionPrefix}-{i:000}", cancellationToken: cancellationToken));
         }
 
         return allocated;

@@ -30,7 +30,7 @@ var countryOption = new Option<string?>("--country")
 };
 var protocolOption = new Option<string?>("--protocol")
 {
-    Description = "http, https, or socks5 for rotating proxies.",
+    Description = "http, https, or socks5 for rotating proxies. http is more reliable for GeeLark's checker.",
 };
 var namePrefixOption = new Option<string>("--name-prefix")
 {

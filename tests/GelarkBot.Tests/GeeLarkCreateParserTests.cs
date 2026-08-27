@@ -39,6 +39,20 @@ public class GeeLarkCreateParserTests
     }
 
     [Fact]
+    public void Map_ExplainsGeeLarkProxyCheckFailure()
+    {
+        var details = new[]
+        {
+            new CreatePhoneDetail { Index = 1, Code = 45004, Msg = "check proxy failed" },
+        };
+
+        var mapped = GeeLarkCreateParser.Map([Plan("gl-001")], 40006, "partial success", details);
+
+        Assert.False(mapped[0].Ok);
+        Assert.Contains("--protocol http", mapped[0].Error);
+    }
+
+    [Fact]
     public void ReadDetails_AcceptsItemsAliasAndEnvId()
     {
         using var doc = JsonDocument.Parse("""

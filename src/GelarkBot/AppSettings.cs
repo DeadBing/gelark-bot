@@ -15,8 +15,9 @@ public sealed class AppSettings
     public string ProxyCountry { get; init; } = "US";
     public string? ProxyCity { get; init; }
     public string? ProxyState { get; init; }
-    public string ProxyProtocol { get; init; } = "socks5";
+    public string ProxyProtocol { get; init; } = "http";
     public int ProxyRotation { get; init; } = 0;
+    public int ProxyQueryChannel { get; init; } = 1;
 
     public string MobileType { get; init; } = "Android 12";
     public string Region { get; init; } = "sgp";
@@ -43,8 +44,9 @@ public sealed class AppSettings
             ProxyCountry = Get("PROXY_COUNTRY", "US"),
             ProxyCity = EmptyToNull(Get("PROXY_CITY")),
             ProxyState = EmptyToNull(Get("PROXY_STATE")),
-            ProxyProtocol = Get("PROXY_PROTOCOL", "socks5"),
+            ProxyProtocol = Get("PROXY_PROTOCOL", "http"),
             ProxyRotation = GetInt("PROXY_ROTATION", 0),
+            ProxyQueryChannel = GetInt("GEELARK_PROXY_QUERY_CHANNEL", 1),
             MobileType = Get("GEELARK_MOBILE_TYPE", "Android 12"),
             Region = Get("GEELARK_REGION", "sgp"),
             ChargeMode = GetInt("GEELARK_CHARGE_MODE", 0),
@@ -87,6 +89,7 @@ public sealed class AppSettings
             ProxyState = proxyState ?? ProxyState,
             ProxyProtocol = proxyProtocol ?? ProxyProtocol,
             ProxyRotation = proxyRotation ?? ProxyRotation,
+            ProxyQueryChannel = ProxyQueryChannel,
             MobileType = mobileType ?? MobileType,
             Region = region ?? Region,
             ChargeMode = chargeMode ?? ChargeMode,

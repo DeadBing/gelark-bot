@@ -57,6 +57,7 @@ public class GeeLarkClientTests
         Assert.Contains("socks5://u:p@1.1.1.1:1080", handler.Requests[0].Body);
         Assert.Contains("\"profileNote\":\"login: alice@example.com\"", handler.Requests[0].Body);
         Assert.Contains("\"mobileType\":\"Android 12\"", handler.Requests[0].Body);
+        Assert.Contains("\"proxyQueryChannel\":1", handler.Requests[0].Body);
         Assert.EndsWith("/open/v1/phone/addNew", handler.Requests[0].Uri.AbsolutePath);
     }
 
