@@ -26,12 +26,24 @@ public static class ProxyLiveProbe
             return new ProxyCheckResult { Source = "local", Ok = false, Message = "missing host/port" };
         }
 
-        var webProxy = new WebProxy
+        if (string.IsNullOrEmpty(parsed.Password))
         {
-            Address = new Uri($"http://{parsed.Host}:{parsed.Port}"),
-            Credentials = new NetworkCredential(parsed.Username ?? "", parsed.Password ?? ""),
+            return new ProxyCheckResult
+            {
+                Source = "local",
+                Ok = false,
+                Message = "password missing from FloppyData connection (check connectionString)",
+            };
+        }
+
+        var user = Uri.EscapeDataString(parsed.Username ?? "");
+        var pass = Uri.EscapeDataString(parsed.Password);
+        var address = new Uri($"http://{user}:{pass}@{parsed.Host}:{parsed.Port}");
+        var webProxy = new WebProxy(address, false)
+        {
+            Credentials = new NetworkCredential(parsed.Username ?? "", parsed.Password),
         };
-        using var handler = new HttpClientHandler
+        using var handler = new SocketsHttpHandler
         {
             Proxy = webProxy,
             UseProxy = true,
@@ -42,6 +54,16 @@ public static class ProxyLiveProbe
         {
             using var response = await http.GetAsync("http://ip-api.com/json", cancellationToken);
             var text = await response.Content.ReadAsStringAsync(cancellationToken);
+            if ((int)response.StatusCode == 407)
+            {
+                return new ProxyCheckResult
+                {
+                    Source = "local",
+                    Ok = false,
+                    Message = "HTTP 407 proxy authentication failed (username/password rejected)",
+                };
+            }
+
             if (!response.IsSuccessStatusCode)
             {
                 return new ProxyCheckResult
@@ -66,11 +88,17 @@ public static class ProxyLiveProbe
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or JsonException)
         {
+            var detail = ex.InnerException?.Message ?? ex.Message;
+            if (detail.Contains("407", StringComparison.Ordinal))
+            {
+                detail = "HTTP 407 proxy authentication failed (username/password rejected)";
+            }
+
             return new ProxyCheckResult
             {
                 Source = "local",
                 Ok = false,
-                Message = ex.InnerException?.Message ?? ex.Message,
+                Message = detail,
             };
         }
     }

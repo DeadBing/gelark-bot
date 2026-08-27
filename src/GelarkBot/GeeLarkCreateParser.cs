@@ -146,6 +146,15 @@ internal static class GeeLarkCreateParser
                 "Their cloud cannot use FloppyData's rotating gateway. Use a GeeLark Dynamic proxy provider, or a static proxy whose host is a public IP.";
         }
 
+        if (plan.Diagnostics.Any(line => line.Contains("407", StringComparison.Ordinal)))
+        {
+            return
+                $"FloppyData returned HTTP 407 (proxy authentication failed) for {endpoint}. " +
+                "The gateway is reachable but rejected the username/password. " +
+                "The bot used to keep the API username and drop the password that only exists on connectionString — pull and run check again. " +
+                "If 407 persists, copy the URL from the FloppyData dashboard and test: curl --proxy <url> https://api.ipify.org";
+        }
+
         if (plan.LocalProbeOk == false)
         {
             return

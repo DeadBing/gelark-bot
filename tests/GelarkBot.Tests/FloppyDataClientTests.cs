@@ -86,12 +86,39 @@ public class FloppyDataClientTests
         var proxies = await client.AllocateAsync(2, "qa");
 
         Assert.Equal(2, proxies.Count);
-        Assert.Equal("qa-001", proxies[0].Session);
-        Assert.Equal("qa-002", proxies[1].Session);
-        Assert.Contains("qa-001", proxies[0].ConnectionString);
+        Assert.Equal("qa001", proxies[0].Session);
+        Assert.Equal("qa002", proxies[1].Session);
+        Assert.Contains("qa001", proxies[0].ConnectionString);
         Assert.Equal(2, handler.Requests.Count);
         Assert.Contains("\"rotation\":0", handler.Requests[0].Body);
         Assert.Contains("\"type\":\"residential\"", handler.Requests[0].Body);
+    }
+
+    [Fact]
+    public async Task Allocate_Rotating_FillsPasswordFromConnectionString()
+    {
+        var handler = new ScriptedHandler
+        {
+            Responder = (_, _) => TestHttp.Json("""
+                {
+                  "connection": {
+                    "protocol": "http",
+                    "host": "geo.g-w.info",
+                    "port": 10080,
+                    "username": "user-abc-type-mobile-country-US",
+                    "connectionString": "http://user-abc-type-mobile-country-US:s3cret@geo.g-w.info:10080"
+                  }
+                }
+                """),
+        };
+        using var http = new HttpClient(handler);
+        var client = new FloppyDataClient(http, TestHttp.Settings(proxyMode: "rotating"));
+
+        var proxies = await client.AllocateAsync(1, "gelark");
+
+        Assert.Equal("user-abc-type-mobile-country-US", proxies[0].Username);
+        Assert.Equal("s3cret", proxies[0].Password);
+        Assert.Equal("gelark001", proxies[0].Session);
     }
 
     [Fact]

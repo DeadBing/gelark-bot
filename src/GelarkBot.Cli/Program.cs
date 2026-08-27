@@ -247,7 +247,7 @@ checkCommand.SetAction(async (parseResult, cancellationToken) =>
             {
                 Count = parseResult.GetValue(checkCountOption),
                 CheckOnly = true,
-                SessionPrefix = "check",
+                SessionPrefix = "chk",
             },
             cancellationToken);
 

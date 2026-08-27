@@ -19,6 +19,24 @@ public class ProxyUrlTests
     }
 
     [Fact]
+    public void Parse_FillsPasswordWhenApiOmitsIt()
+    {
+        var parsed = ProxyUrl.Parse(new ProxyEndpoint
+        {
+            ConnectionString = "http://user-abc-type-mobile:s3cret@geo.g-w.info:10080",
+            Source = "rotating",
+            Protocol = "http",
+            Host = "geo.g-w.info",
+            Port = 10080,
+            Username = "user-abc-type-mobile",
+            Password = null,
+        });
+
+        Assert.Equal("s3cret", parsed.Password);
+        Assert.Equal("user-abc-type-mobile", parsed.Username);
+    }
+
+    [Fact]
     public void ForGeeLark_UsesColonFormat()
     {
         var formatted = ProxyUrl.ForGeeLark(new ProxyEndpoint

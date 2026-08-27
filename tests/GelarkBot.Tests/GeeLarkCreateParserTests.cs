@@ -64,6 +64,24 @@ public class GeeLarkCreateParserTests
     }
 
     [Fact]
+    public void Explain_WhenLocalProbeGets407()
+    {
+        var plan = Plan("gl-001", localOk: false);
+        plan = new ProfilePlan
+        {
+            ProfileName = plan.ProfileName,
+            Proxy = plan.Proxy,
+            LocalProbeOk = false,
+            Diagnostics = ["local FAIL HTTP 407 proxy authentication failed (username/password rejected)"],
+        };
+
+        var error = GeeLarkCreateParser.ExplainProxyCheckFailure(plan);
+
+        Assert.Contains("407", error);
+        Assert.Contains("connectionString", error);
+    }
+
+    [Fact]
     public void Explain_WhenLocalProbeFails()
     {
         var error = GeeLarkCreateParser.ExplainProxyCheckFailure(Plan("gl-001", localOk: false));

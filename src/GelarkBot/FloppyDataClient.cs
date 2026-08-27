@@ -89,7 +89,7 @@ public sealed class FloppyDataClient
             throw new FloppyDataException("FloppyData did not return connection.connectionString");
         }
 
-        return new ProxyEndpoint
+        return ProxyUrl.Parse(new ProxyEndpoint
         {
             ConnectionString = connectionString,
             Source = "rotating",
@@ -101,7 +101,7 @@ public sealed class FloppyDataClient
             Country = _settings.ProxyCountry.ToUpperInvariant(),
             City = _settings.ProxyCity,
             Session = session,
-        };
+        });
     }
 
     public async Task<RotatingBalance> GetRotatingBalanceAsync(CancellationToken cancellationToken = default)
@@ -166,7 +166,7 @@ public sealed class FloppyDataClient
         var allocated = new List<ProxyEndpoint>(count);
         for (var i = 1; i <= count; i++)
         {
-            allocated.Add(await CreateRotatingConnectionAsync($"{sessionPrefix}-{i:000}", cancellationToken: cancellationToken));
+            allocated.Add(await CreateRotatingConnectionAsync(SessionId(sessionPrefix, i), cancellationToken: cancellationToken));
         }
 
         return allocated;
@@ -358,6 +358,17 @@ public sealed class FloppyDataClient
         }
 
         return $"{scheme}://{Uri.EscapeDataString(proxy.Username)}:{Uri.EscapeDataString(proxy.Password ?? "")}@{proxy.Host}:{proxy.Port}";
+    }
+
+    internal static string SessionId(string prefix, int index)
+    {
+        var cleaned = new string((prefix ?? "s").Where(char.IsLetterOrDigit).ToArray());
+        if (cleaned.Length == 0)
+        {
+            cleaned = "s";
+        }
+
+        return $"{cleaned}{index:000}";
     }
 
     private static string? ProtocolFromUrl(string connectionString)

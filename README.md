@@ -75,7 +75,8 @@ dotnet run --project src/GelarkBot.Cli -- check --count 1 --proxy-mode rotating 
 ```
 
 - `local OK` + GeeLark FAIL — облако GeeLark не умеет FloppyData `geo.g-w.info`. Нужен Dynamic proxy GeeLark или static IP.
-- `local FAIL` — сессия FloppyData не живая. Проверь GB, попробуй `--proxy-type residential`, или собери URL в кабинете FloppyData и проверь `curl --proxy`.
+- `local FAIL HTTP 407` — шлюз ответил, но отверг логин/пароль. Раньше бот брал username из API и терял password, который есть только в `connectionString`. `git pull` и снова `check`.
+- `local FAIL` без 407 — сессия не живая. Проверь GB, попробуй `--proxy-type residential`, или собери URL в кабинете FloppyData.
 
 `Need N static FloppyData proxies in US, found 0` значит, что в `.env` всё ещё `PROXY_MODE=static`: бот ищет уже купленные dedicated IP и баланс не трогает. Поставь `PROXY_MODE=rotating` и `PROXY_TYPE=mobile` или:
 

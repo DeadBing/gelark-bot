@@ -14,12 +14,15 @@ public static class ProxyUrl
 
     public static ProxyEndpoint Parse(ProxyEndpoint proxy)
     {
-        if (!string.IsNullOrWhiteSpace(proxy.Host) && proxy.Port is > 0 && !string.IsNullOrWhiteSpace(proxy.Username))
+        if (!string.IsNullOrWhiteSpace(proxy.Host) &&
+            proxy.Port is > 0 &&
+            !string.IsNullOrWhiteSpace(proxy.Username) &&
+            !string.IsNullOrEmpty(proxy.Password))
         {
             return proxy;
         }
 
-        return Merge(proxy, ParseString(proxy.ConnectionString));
+        return Merge(proxy, ParseString(proxy.ConnectionString) ?? ParseUserInfo(proxy.ConnectionString));
     }
 
     public static ProxyEndpoint? ParseString(string? connectionString)
@@ -41,6 +44,20 @@ public static class ProxyUrl
                 Port = int.Parse(colon.Groups["port"].Value),
                 Username = colon.Groups["user"].Value,
                 Password = colon.Groups["pass"].Value,
+            };
+        }
+
+        if (TrySplitUserInfo(connectionString, out var user, out var pass, out var host, out var port, out var scheme))
+        {
+            return new ProxyEndpoint
+            {
+                ConnectionString = connectionString,
+                Source = "",
+                Protocol = scheme,
+                Host = host,
+                Port = port,
+                Username = user,
+                Password = pass,
             };
         }
 
@@ -137,6 +154,67 @@ public static class ProxyUrl
             return null;
         }
     }
+
+    internal static bool TrySplitUserInfo(
+        string connectionString,
+        out string? username,
+        out string? password,
+        out string? host,
+        out int? port,
+        out string? scheme)
+    {
+        username = password = host = scheme = null;
+        port = null;
+        var schemeEnd = connectionString.IndexOf("://", StringComparison.Ordinal);
+        var at = connectionString.LastIndexOf('@');
+        if (schemeEnd <= 0 || at <= schemeEnd)
+        {
+            return false;
+        }
+
+        scheme = connectionString[..schemeEnd];
+        var userInfo = connectionString[(schemeEnd + 3)..at];
+        var authority = connectionString[(at + 1)..];
+        var slash = authority.IndexOf('/');
+        if (slash >= 0)
+        {
+            authority = authority[..slash];
+        }
+
+        var colon = authority.LastIndexOf(':');
+        if (colon <= 0 || !int.TryParse(authority[(colon + 1)..], out var parsedPort))
+        {
+            return false;
+        }
+
+        host = authority[..colon];
+        port = parsedPort;
+        var userColon = userInfo.IndexOf(':');
+        if (userColon < 0)
+        {
+            username = Uri.UnescapeDataString(userInfo);
+            return !string.IsNullOrWhiteSpace(username);
+        }
+
+        username = Uri.UnescapeDataString(userInfo[..userColon]);
+        password = Uri.UnescapeDataString(userInfo[(userColon + 1)..]);
+        return !string.IsNullOrWhiteSpace(username);
+    }
+
+    private static ProxyEndpoint? ParseUserInfo(string? connectionString) =>
+        !string.IsNullOrWhiteSpace(connectionString) &&
+        TrySplitUserInfo(connectionString, out var user, out var pass, out var host, out var port, out var scheme)
+            ? new ProxyEndpoint
+            {
+                ConnectionString = connectionString,
+                Source = "",
+                Protocol = scheme,
+                Host = host,
+                Port = port,
+                Username = user,
+                Password = pass,
+            }
+            : null;
 
     private static ProxyEndpoint Merge(ProxyEndpoint proxy, ProxyEndpoint? parsed)
     {
