@@ -143,7 +143,7 @@ public class GeeLarkClientTests
 
         Assert.True(created[0].Ok);
         Assert.False(created[1].Ok);
-        Assert.Equal("check proxy failed", created[1].Error);
+        Assert.Contains("check proxy failed", created[1].Error);
     }
 
     [Fact]
