@@ -139,11 +139,25 @@ internal static class GeeLarkCreateParser
     {
         var parsed = ProxyUrl.Parse(plan.Proxy);
         var endpoint = $"{parsed.Protocol ?? "http"}://{parsed.Host}:{parsed.Port}";
+        if (plan.LocalProbeOk == true)
+        {
+            return
+                $"This FloppyData session works from this machine, but GeeLark returned Proxy connection failed for {endpoint}. " +
+                "Their cloud cannot use FloppyData's rotating gateway. Use a GeeLark Dynamic proxy provider, or a static proxy whose host is a public IP.";
+        }
+
+        if (plan.LocalProbeOk == false)
+        {
+            return
+                $"This FloppyData session does not work from this machine either ({endpoint}). " +
+                "The connections API still issues a URL when traffic is empty or the pool is unavailable. " +
+                "Check rotating GB with `balance`, try --proxy-type residential, or build a URL in the FloppyData dashboard and test: curl --proxy <url> https://api.ipify.org";
+        }
+
         return
             $"check proxy failed: GeeLark could not use {endpoint}. " +
             "HTTP vs SOCKS5 is not the issue — GeeLark already fails on FloppyData geo.g-w.info for both. " +
-            "Paste the same host/port/user/pass in GeeLark → Proxies → Check proxy. " +
-            "If that also fails, their cloud cannot reach FloppyData's gateway.";
+            "Run `check` again after pulling; it now probes the proxy from this machine and prints rotating GB.";
     }
 
     private static bool IsSuccessMessage(string? message) =>

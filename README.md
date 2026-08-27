@@ -38,7 +38,8 @@ dotnet run --project src/GelarkBot.Cli -- create --emails accounts.txt --group q
 | Команда | Назначение |
 | --- | --- |
 | `create` | Взять прокси и создать профили |
-| `check` | Проверить FloppyData и чекер GeeLark, не создавая телефоны |
+| `check` | Проверить FloppyData, локальный выход и чекер GeeLark, не создавая телефоны |
+| `balance` | Показать остаток rotating-трафика FloppyData |
 | `proxies` | Показать static-инвентарь FloppyData |
 | `phones` | Показать уже существующие профили GeeLark |
 
@@ -66,11 +67,15 @@ dotnet run --project src/GelarkBot.Cli -- create --emails accounts.txt --group q
 4. если падает IP-API — переключает канал на IP2Location
 5. при успехе добавляет прокси в GeeLark и создаёт телефон через `proxyNumber`
 
-`check proxy failed` на HTTP `geo.g-w.info:10080` **и** на SOCKS5 `:10800` значит, что облако GeeLark не достучалось до шлюза FloppyData. Это не лечится `--protocol http`. Проверь ту же связку в GeeLark → Proxies → Check proxy. Если UI тоже красный — нужен провайдер из Dynamic proxy GeeLark или другой хост, который их чекер видит.
+`check` теперь ещё ходит в сам прокси с этой машины и читает rotating GB. FloppyData `connections` может отдать URL даже при 0 GB или мёртвом пуле — тогда их `/v2/proxy/check` отвечает 400, локальный probe падает, и GeeLark пишет `Proxy connection failed`.
 
 ```bash
+dotnet run --project src/GelarkBot.Cli -- balance
 dotnet run --project src/GelarkBot.Cli -- check --count 1 --proxy-mode rotating --proxy-type mobile --country US --protocol http
 ```
+
+- `local OK` + GeeLark FAIL — облако GeeLark не умеет FloppyData `geo.g-w.info`. Нужен Dynamic proxy GeeLark или static IP.
+- `local FAIL` — сессия FloppyData не живая. Проверь GB, попробуй `--proxy-type residential`, или собери URL в кабинете FloppyData и проверь `curl --proxy`.
 
 `Need N static FloppyData proxies in US, found 0` значит, что в `.env` всё ещё `PROXY_MODE=static`: бот ищет уже купленные dedicated IP и баланс не трогает. Поставь `PROXY_MODE=rotating` и `PROXY_TYPE=mobile` или:
 

@@ -121,6 +121,10 @@ createCommand.SetAction(async (parseResult, cancellationToken) =>
         using var floppyHttp = CreateHttp(settings.TimeoutSeconds);
         using var geeLarkHttp = dryRun ? null : CreateHttp(settings.TimeoutSeconds);
         var floppy = new FloppyDataClient(floppyHttp, settings);
+        if (!await WriteBalanceOrAbortAsync(floppy, settings, dryRun, cancellationToken))
+        {
+            return 1;
+        }
         var geeLark = geeLarkHttp is null ? null : new GeeLarkClient(geeLarkHttp, settings);
         var creator = new ProfileCreator(floppy, geeLark, settings);
         var result = await creator.CreateAsync(
@@ -230,11 +234,14 @@ checkCommand.SetAction(async (parseResult, cancellationToken) =>
 
         using var floppyHttp = CreateHttp(settings.TimeoutSeconds);
         using var geeLarkHttp = CreateHttp(settings.TimeoutSeconds);
+        var floppy = new FloppyDataClient(floppyHttp, settings);
+        if (!await WriteBalanceOrAbortAsync(floppy, settings, dryRun: false, cancellationToken))
+        {
+            return 1;
+        }
+
         var geeLark = new GeeLarkClient(geeLarkHttp, settings);
-        var creator = new ProfileCreator(
-            new FloppyDataClient(floppyHttp, settings),
-            geeLark,
-            settings);
+        var creator = new ProfileCreator(floppy, geeLark, settings);
         var result = await creator.CreateAsync(
             new CreateRequest
             {
@@ -253,6 +260,31 @@ checkCommand.SetAction(async (parseResult, cancellationToken) =>
         return result.Failed == 0 ? 0 : 1;
     }
     catch (Exception ex) when (ex is FloppyDataException or GeeLarkException or InvalidOperationException or FormatException or ArgumentOutOfRangeException)
+    {
+        Console.Error.WriteLine(ex.Message);
+        return 1;
+    }
+});
+
+var balanceCommand = new Command("balance", "Show FloppyData rotating traffic balance");
+balanceCommand.SetAction(async (_, cancellationToken) =>
+{
+    try
+    {
+        var settings = AppSettings.FromEnvironment();
+        settings.RequireFloppyData();
+        using var http = CreateHttp(settings.TimeoutSeconds);
+        var client = new FloppyDataClient(http, settings);
+        var balance = await client.GetRotatingBalanceAsync(cancellationToken);
+        Console.WriteLine(balance);
+        if (!string.IsNullOrWhiteSpace(balance.ExpiresAt))
+        {
+            Console.WriteLine($"Expiring bucket: {balance.ExpiresAt}");
+        }
+
+        return balance.IsEmpty ? 1 : 0;
+    }
+    catch (Exception ex) when (ex is FloppyDataException or InvalidOperationException)
     {
         Console.Error.WriteLine(ex.Message);
         return 1;
@@ -295,11 +327,41 @@ var root = new RootCommand("Create GeeLark cloud-phone profiles and attach Flopp
 {
     createCommand,
     checkCommand,
+    balanceCommand,
     proxiesCommand,
     phonesCommand,
 };
 
 return root.Parse(args).Invoke();
+
+static async Task<bool> WriteBalanceOrAbortAsync(
+    FloppyDataClient floppy,
+    AppSettings settings,
+    bool dryRun,
+    CancellationToken cancellationToken)
+{
+    if (!string.Equals(settings.ProxyMode, "rotating", StringComparison.OrdinalIgnoreCase))
+    {
+        return true;
+    }
+
+    try
+    {
+        var balance = await floppy.GetRotatingBalanceAsync(cancellationToken);
+        Console.WriteLine(balance);
+        if (balance.IsEmpty && !dryRun)
+        {
+            Console.Error.WriteLine("Rotating balance is 0 GB. Top up at https://app.floppydata.com — the connections API still returns a URL that cannot pass traffic.");
+            return false;
+        }
+    }
+    catch (Exception ex) when (ex is FloppyDataException or HttpRequestException or TaskCanceledException)
+    {
+        Console.Error.WriteLine($"Could not read FloppyData balance: {ex.Message}");
+    }
+
+    return true;
+}
 
 static void PrintProfiles(CreateResult result)
 {

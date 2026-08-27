@@ -8,17 +8,20 @@ public sealed class ProfileCreator
     private readonly GeeLarkClient? _geeLark;
     private readonly AppSettings _settings;
     private readonly Func<string, CancellationToken, Task<string?>> _resolveIpv4;
+    private readonly Func<ProxyEndpoint, CancellationToken, Task<ProxyCheckResult>> _liveProbe;
 
     public ProfileCreator(
         FloppyDataClient floppyData,
         GeeLarkClient? geeLark,
         AppSettings settings,
-        Func<string, CancellationToken, Task<string?>>? resolveIpv4 = null)
+        Func<string, CancellationToken, Task<string?>>? resolveIpv4 = null,
+        Func<ProxyEndpoint, CancellationToken, Task<ProxyCheckResult>>? liveProbe = null)
     {
         _floppyData = floppyData;
         _geeLark = geeLark;
         _settings = settings;
         _resolveIpv4 = resolveIpv4 ?? ProxyUrl.ResolveIpv4Async;
+        _liveProbe = liveProbe ?? ProxyLiveProbe.ProbeAsync;
     }
 
     public async Task<CreateResult> CreateAsync(CreateRequest request, CancellationToken cancellationToken = default)
@@ -163,12 +166,10 @@ public sealed class ProfileCreator
         if (floppy is not null)
         {
             diagnostics.Add(floppy.ToString());
-            if (!floppy.Ok && floppy.Message == "no exit IP")
-            {
-                var dead = WithDiagnostics(plan, parsed, diagnostics);
-                return new PreparedPlan(dead, false, true, "FloppyData check failed: no exit IP.");
-            }
         }
+
+        var local = await SafeLocalProbeAsync(parsed, cancellationToken);
+        diagnostics.Add(local.ToString());
 
         var preferredName = _settings.ProxyQueryChannel == 2 ? "IP2Location" : "IP-API";
         var otherName = preferredName == "IP2Location" ? "IP-API" : "IP2Location";
@@ -256,6 +257,8 @@ public sealed class ProfileCreator
             ProxyNumber = serial,
             ProxyQueryChannel = chosenChannel,
             Diagnostics = diagnostics,
+            LocalProbeOk = local.Ok,
+            FloppyCheckOk = floppy?.Ok,
         };
 
         var error = geeLarkOk
@@ -263,18 +266,6 @@ public sealed class ProfileCreator
             : GeeLarkCreateParser.ExplainProxyCheckFailure(prepared);
         return new PreparedPlan(prepared, geeLarkOk, SkipCreate: false, error);
     }
-
-    private static ProfilePlan WithDiagnostics(ProfilePlan plan, ProxyEndpoint parsed, IReadOnlyList<string> diagnostics) =>
-        new()
-        {
-            ProfileName = plan.ProfileName,
-            Proxy = parsed,
-            Email = plan.Email,
-            ProfileNote = plan.ProfileNote,
-            ProfileTags = plan.ProfileTags,
-            ProfileGroup = plan.ProfileGroup,
-            Diagnostics = diagnostics,
-        };
 
     private async Task<ProxyCheckResult?> SafeFloppyCheckAsync(ProxyEndpoint proxy, CancellationToken cancellationToken)
     {
@@ -285,6 +276,18 @@ public sealed class ProfileCreator
         catch (Exception ex) when (ex is FloppyDataException or HttpRequestException or TaskCanceledException)
         {
             return new ProxyCheckResult { Source = "FloppyData", Ok = false, Message = ex.Message };
+        }
+    }
+
+    private async Task<ProxyCheckResult> SafeLocalProbeAsync(ProxyEndpoint proxy, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _liveProbe(proxy, cancellationToken);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException)
+        {
+            return new ProxyCheckResult { Source = "local", Ok = false, Message = ex.Message };
         }
     }
 

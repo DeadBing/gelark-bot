@@ -104,58 +104,34 @@ public sealed class FloppyDataClient
         };
     }
 
+    public async Task<RotatingBalance> GetRotatingBalanceAsync(CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, HttpUrl.Combine(_settings.FloppyDataBaseUrl, "/v2/proxy/rotating/balance"));
+        request.Headers.TryAddWithoutValidation("X-Api-Key", _settings.FloppyDataApiKey);
+        using var response = await _http.SendAsync(request, cancellationToken);
+        var payload = await ReadJsonAsync<RotatingBalanceResponse>(response, cancellationToken);
+        return new RotatingBalance
+        {
+            TotalGb = payload.Total?.Traffic?.AvailableGb ?? 0,
+            TotalBytes = payload.Total?.Traffic?.AvailableBytes ?? 0,
+            ExpiresAt = payload.Expiring?.ExpiresAt,
+        };
+    }
+
     public async Task<ProxyCheckResult> CheckAsync(ProxyEndpoint proxy, CancellationToken cancellationToken = default)
     {
         var parsed = ProxyUrl.Parse(proxy);
-        object body;
-        if (!string.IsNullOrWhiteSpace(parsed.Host) && parsed.Port is > 0 && !string.IsNullOrWhiteSpace(parsed.Username))
+        ProxyCheckResult? last = null;
+        foreach (var body in CheckBodies(parsed))
         {
-            body = new
+            last = await CheckOnceAsync(body, cancellationToken);
+            if (last.Ok)
             {
-                host = parsed.Host,
-                port = parsed.Port,
-                username = parsed.Username,
-                password = parsed.Password ?? "",
-                protocol = parsed.Protocol ?? "http",
-            };
-        }
-        else
-        {
-            body = new { connectionString = parsed.ConnectionString };
+                return last;
+            }
         }
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, HttpUrl.Combine(_settings.FloppyDataBaseUrl, "/v2/proxy/check"));
-        request.Headers.TryAddWithoutValidation("X-Api-Key", _settings.FloppyDataApiKey);
-        request.Content = JsonContent.Create(body, options: JsonUtil.Options);
-        using var response = await _http.SendAsync(request, cancellationToken);
-        var text = await response.Content.ReadAsStringAsync(cancellationToken);
-        if (!response.IsSuccessStatusCode)
-        {
-            return new ProxyCheckResult
-            {
-                Source = "FloppyData",
-                Ok = false,
-                Message = FormatError(text, (int)response.StatusCode),
-            };
-        }
-
-        using var document = JsonDocument.Parse(string.IsNullOrWhiteSpace(text) ? "{}" : text);
-        var root = document.RootElement;
-        var ip = root.TryGetProperty("ip", out var ipEl) ? ipEl.GetString() : null;
-        string? country = null;
-        if (root.TryGetProperty("location", out var location) && location.ValueKind == JsonValueKind.Object)
-        {
-            country = location.TryGetProperty("countryCode", out var cc) ? cc.GetString() : null;
-        }
-
-        return new ProxyCheckResult
-        {
-            Source = "FloppyData",
-            Ok = !string.IsNullOrWhiteSpace(ip),
-            Ip = ip,
-            Country = country,
-            Message = string.IsNullOrWhiteSpace(ip) ? "no exit IP" : null,
-        };
+        return last ?? new ProxyCheckResult { Source = "FloppyData", Ok = false, Message = "no check attempted" };
     }
 
     public async Task<IReadOnlyList<ProxyEndpoint>> AllocateAsync(
@@ -213,10 +189,16 @@ public sealed class FloppyDataClient
         try
         {
             var body = JsonSerializer.Deserialize<FloppyErrorBody>(text, JsonUtil.Options);
-            var message = body?.Error?.Message ?? body?.Error?.Code ?? body?.Message;
-            if (!string.IsNullOrWhiteSpace(message))
+            var message = body?.Error?.Message ?? body?.Message;
+            var code = body?.Error?.Code;
+            var hint = body?.Error?.Details?.RecoveryHint;
+            if (!string.IsNullOrWhiteSpace(message) || !string.IsNullOrWhiteSpace(code))
             {
-                return $"FloppyData HTTP {statusCode}: {message}";
+                var prefix = string.IsNullOrWhiteSpace(code)
+                    ? $"FloppyData HTTP {statusCode}"
+                    : $"FloppyData HTTP {statusCode} ({code})";
+                var formatted = string.IsNullOrWhiteSpace(message) ? prefix : $"{prefix}: {message}";
+                return string.IsNullOrWhiteSpace(hint) ? formatted : $"{formatted} {hint}";
             }
         }
         catch (JsonException)
@@ -298,6 +280,85 @@ public sealed class FloppyDataClient
 
     private static string? FirstNonEmpty(params string?[] values) =>
         values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+
+    private async Task<ProxyCheckResult> CheckOnceAsync(object body, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, HttpUrl.Combine(_settings.FloppyDataBaseUrl, "/v2/proxy/check"));
+        request.Headers.TryAddWithoutValidation("X-Api-Key", _settings.FloppyDataApiKey);
+        request.Content = JsonContent.Create(body, options: JsonUtil.Options);
+        using var response = await _http.SendAsync(request, cancellationToken);
+        var text = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return new ProxyCheckResult
+            {
+                Source = "FloppyData",
+                Ok = false,
+                Message = FormatError(text, (int)response.StatusCode),
+            };
+        }
+
+        using var document = JsonDocument.Parse(string.IsNullOrWhiteSpace(text) ? "{}" : text);
+        var root = document.RootElement;
+        var ip = root.TryGetProperty("ip", out var ipEl) ? ipEl.GetString() : null;
+        string? country = null;
+        if (root.TryGetProperty("location", out var location) && location.ValueKind == JsonValueKind.Object)
+        {
+            country = location.TryGetProperty("countryCode", out var cc) ? cc.GetString() : null;
+        }
+
+        return new ProxyCheckResult
+        {
+            Source = "FloppyData",
+            Ok = !string.IsNullOrWhiteSpace(ip),
+            Ip = ip,
+            Country = country,
+            Message = string.IsNullOrWhiteSpace(ip) ? "no exit IP" : null,
+        };
+    }
+
+    private static IEnumerable<object> CheckBodies(ProxyEndpoint parsed)
+    {
+        if (!string.IsNullOrWhiteSpace(parsed.ConnectionString))
+        {
+            yield return new { connectionString = parsed.ConnectionString };
+        }
+
+        var encoded = EncodedConnectionString(parsed);
+        if (!string.IsNullOrWhiteSpace(encoded) &&
+            !string.Equals(encoded, parsed.ConnectionString, StringComparison.Ordinal))
+        {
+            yield return new { connectionString = encoded };
+        }
+
+        if (!string.IsNullOrWhiteSpace(parsed.Host) && parsed.Port is > 0 && !string.IsNullOrWhiteSpace(parsed.Username))
+        {
+            yield return new
+            {
+                host = parsed.Host,
+                port = parsed.Port,
+                username = parsed.Username,
+                password = parsed.Password ?? "",
+                protocol = parsed.Protocol ?? "http",
+            };
+        }
+    }
+
+    internal static string EncodedConnectionString(ProxyEndpoint proxy)
+    {
+        if (string.IsNullOrWhiteSpace(proxy.Host) || proxy.Port is not > 0)
+        {
+            return proxy.ConnectionString;
+        }
+
+        var scheme = string.IsNullOrWhiteSpace(proxy.Protocol) ? "http" : proxy.Protocol;
+        if (string.IsNullOrWhiteSpace(proxy.Username))
+        {
+            return $"{scheme}://{proxy.Host}:{proxy.Port}";
+        }
+
+        return $"{scheme}://{Uri.EscapeDataString(proxy.Username)}:{Uri.EscapeDataString(proxy.Password ?? "")}@{proxy.Host}:{proxy.Port}";
+    }
 
     private static string? ProtocolFromUrl(string connectionString)
     {

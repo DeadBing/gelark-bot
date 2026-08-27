@@ -39,6 +39,8 @@ public sealed class ProfilePlan
     public int? ProxyNumber { get; init; }
     public int? ProxyQueryChannel { get; init; }
     public IReadOnlyList<string> Diagnostics { get; init; } = [];
+    public bool? LocalProbeOk { get; init; }
+    public bool? FloppyCheckOk { get; init; }
 }
 
 public sealed class CreatedProfile
@@ -230,6 +232,47 @@ internal sealed class FloppyErrorDetail
 {
     public string? Code { get; set; }
     public string? Message { get; set; }
+    public FloppyErrorExtra? Details { get; set; }
+}
+
+internal sealed class FloppyErrorExtra
+{
+    public string? RecoveryHint { get; set; }
+    public string? DiagnosticCode { get; set; }
+    public int? UpstreamStatus { get; set; }
+}
+
+public sealed class RotatingBalance
+{
+    public double TotalGb { get; init; }
+    public long TotalBytes { get; init; }
+    public string? ExpiresAt { get; init; }
+
+    public bool IsEmpty => TotalBytes <= 0 && TotalGb <= 0;
+
+    public override string ToString() =>
+        IsEmpty
+            ? "FloppyData rotating traffic: 0 GB"
+            : $"FloppyData rotating traffic: {TotalGb:0.###} GB";
+}
+
+internal sealed class RotatingBalanceResponse
+{
+    public RotatingBalanceBucket? Expiring { get; set; }
+    public RotatingBalanceBucket? NonExpiring { get; set; }
+    public RotatingBalanceBucket? Total { get; set; }
+}
+
+internal sealed class RotatingBalanceBucket
+{
+    public string? ExpiresAt { get; set; }
+    public RotatingTraffic? Traffic { get; set; }
+}
+
+internal sealed class RotatingTraffic
+{
+    public long AvailableBytes { get; set; }
+    public double AvailableGb { get; set; }
 }
 
 internal sealed class StaticProxyList

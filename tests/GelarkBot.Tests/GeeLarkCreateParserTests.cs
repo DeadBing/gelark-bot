@@ -55,6 +55,24 @@ public class GeeLarkCreateParserTests
     }
 
     [Fact]
+    public void Explain_WhenLocalProbeWorks()
+    {
+        var error = GeeLarkCreateParser.ExplainProxyCheckFailure(Plan("gl-001", localOk: true));
+
+        Assert.Contains("works from this machine", error);
+        Assert.Contains("Dynamic proxy", error);
+    }
+
+    [Fact]
+    public void Explain_WhenLocalProbeFails()
+    {
+        var error = GeeLarkCreateParser.ExplainProxyCheckFailure(Plan("gl-001", localOk: false));
+
+        Assert.Contains("does not work from this machine", error);
+        Assert.Contains("balance", error);
+    }
+
+    [Fact]
     public void ReadDetails_AcceptsItemsAliasAndEnvId()
     {
         using var doc = JsonDocument.Parse("""
@@ -99,9 +117,10 @@ public class GeeLarkCreateParserTests
         Assert.Equal("phone-9", created[0].Id);
     }
 
-    private static ProfilePlan Plan(string name) => new()
+    private static ProfilePlan Plan(string name, bool? localOk = null) => new()
     {
         ProfileName = name,
         Proxy = new ProxyEndpoint { ConnectionString = "http://u:p@1.1.1.1:80", Source = "rotating" },
+        LocalProbeOk = localOk,
     };
 }

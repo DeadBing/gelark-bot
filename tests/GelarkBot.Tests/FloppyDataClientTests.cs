@@ -187,8 +187,8 @@ public class FloppyDataClientTests
         {
             Responder = (_, body) =>
             {
-                Assert.Contains("\"host\":\"geo.g-w.info\"", body);
-                Assert.Contains("\"port\":10080", body);
+                Assert.Contains("connectionString", body);
+                Assert.Contains("geo.g-w.info", body);
                 return TestHttp.Json("""
                     {
                       "ip": "8.8.8.8",
@@ -215,6 +215,67 @@ public class FloppyDataClientTests
         Assert.Equal("8.8.8.8", check.Ip);
         Assert.Equal("US", check.Country);
         Assert.EndsWith("/v2/proxy/check", handler.Requests[0].Uri.AbsolutePath);
+    }
+
+    [Fact]
+    public async Task Check_FallsBackToStructuredFieldsWhenConnectionStringFails()
+    {
+        var calls = 0;
+        var handler = new ScriptedHandler
+        {
+            Responder = (_, body) =>
+            {
+                calls++;
+                if (body.Contains("connectionString"))
+                {
+                    return TestHttp.Json(
+                        """{"error":{"code":"invalid_request","message":"Failed to check proxy. Verify the proxy configuration."}}""",
+                        HttpStatusCode.BadRequest);
+                }
+
+                Assert.Contains("\"host\":\"geo.g-w.info\"", body);
+                return TestHttp.Json("""{ "ip": "9.9.9.9", "location": { "countryCode": "US" } }""");
+            },
+        };
+        using var http = new HttpClient(handler);
+        var client = new FloppyDataClient(http, TestHttp.Settings());
+
+        var check = await client.CheckAsync(new ProxyEndpoint
+        {
+            ConnectionString = "http://u:p@geo.g-w.info:10080",
+            Source = "rotating",
+            Protocol = "http",
+            Host = "geo.g-w.info",
+            Port = 10080,
+            Username = "u",
+            Password = "p",
+        });
+
+        Assert.True(check.Ok);
+        Assert.Equal("9.9.9.9", check.Ip);
+        Assert.Equal(2, calls);
+    }
+
+    [Fact]
+    public async Task GetRotatingBalance_ReadsTotalGb()
+    {
+        var handler = new ScriptedHandler
+        {
+            Responder = (_, _) => TestHttp.Json("""
+                {
+                  "expiring": { "expiresAt": "2026-09-01T00:00:00Z", "traffic": { "availableBytes": 0, "availableGb": 0 } },
+                  "nonExpiring": { "traffic": { "availableBytes": 5368709120, "availableGb": 5 } },
+                  "total": { "traffic": { "availableBytes": 5368709120, "availableGb": 5 } }
+                }
+                """),
+        };
+        using var http = new HttpClient(handler);
+        var client = new FloppyDataClient(http, TestHttp.Settings());
+
+        var balance = await client.GetRotatingBalanceAsync();
+        Assert.Equal(5, balance.TotalGb);
+        Assert.False(balance.IsEmpty);
+        Assert.EndsWith("/v2/proxy/rotating/balance", handler.Requests[0].Uri.AbsolutePath);
     }
 
     [Fact]

@@ -208,7 +208,8 @@ public class ProfileCreatorTests
             new FloppyDataClient(floppyHttp, settings),
             new GeeLarkClient(geeLarkHttp, settings),
             settings,
-            resolveIpv4: (_, _) => Task.FromResult<string?>("9.9.9.9"));
+            resolveIpv4: (_, _) => Task.FromResult<string?>("9.9.9.9"),
+            liveProbe: (_, _) => Task.FromResult(new ProxyCheckResult { Source = "local", Ok = true, Ip = "8.8.8.8" }));
 
         try
         {
@@ -277,7 +278,8 @@ public class ProfileCreatorTests
         var creator = new ProfileCreator(
             new FloppyDataClient(floppyHttp, settings),
             new GeeLarkClient(geeLarkHttp, settings),
-            settings);
+            settings,
+            liveProbe: (_, _) => Task.FromResult(new ProxyCheckResult { Source = "local", Ok = true, Ip = "1.1.1.1" }));
 
         try
         {
