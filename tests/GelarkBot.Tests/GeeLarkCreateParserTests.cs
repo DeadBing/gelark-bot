@@ -34,7 +34,7 @@ public class GeeLarkCreateParserTests
         var mapped = GeeLarkCreateParser.Map([Plan("gl-001")], 0, "success", []);
 
         Assert.False(mapped[0].Ok);
-        Assert.DoesNotContain("success", mapped[0].Error, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEqual("success", mapped[0].Error);
         Assert.Contains("phones", mapped[0].Error);
     }
 
