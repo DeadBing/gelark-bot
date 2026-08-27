@@ -24,7 +24,6 @@ cp .env.example .env
 # GEELARK_TOKEN и FLOPPYDATA_API_KEY
 
 dotnet build
-dotnet run --project src/GelarkBot.Cli -- proxies
 dotnet run --project src/GelarkBot.Cli -- create --count 3 --dry-run
 dotnet run --project src/GelarkBot.Cli -- create --count 3 --group qa
 dotnet run --project src/GelarkBot.Cli -- create --emails accounts.txt --group qa
@@ -46,8 +45,9 @@ dotnet run --project src/GelarkBot.Cli -- create --emails accounts.txt --group q
 
 - `--count N` — сколько профилей. Если не задан, берётся размер `--emails`
 - `--emails file` — пул `логин:пароль:totp`, не обязателен
-- `--proxy-mode static|rotating` — static IP с аккаунта или sticky rotating-сессии
-- `--country US` — фильтр static / гео rotating
+- `--proxy-mode rotating|static` — по умолчанию rotating: бот сам собирает sticky-сессии из баланса FloppyData
+- `--proxy-type mobile|residential|datacenter` — по умолчанию mobile
+- `--country US` — гео для rotating / фильтр static
 - `--dry-run` — только план и JSON, без `phone/addNew`
 - `--group`, `--mobile-type`, `--region`, `--output`
 
@@ -55,16 +55,17 @@ dotnet run --project src/GelarkBot.Cli -- create --emails accounts.txt --group q
 
 ## Прокси
 
-- **static** — `GET /v2/proxy/static`, в профиль уходит `connection.connectionString`. Это только купленные закреплённые IP, не GB-трафик.
-- **rotating** — `POST /v2/proxy/rotating/connections` с уникальным `session` и `rotation=0` (липкая сессия на профиль)
+По умолчанию бот **сам создаёт** sticky mobile-прокси из баланса FloppyData (`POST /v2/proxy/rotating/connections`, `type=mobile`, `rotation=0`, уникальный `session` на профиль). Баланс GB/mobile при этом тратится. Static IP покупать не нужно.
 
-Если `create` пишет `Need N static FloppyData proxies in US, found 0`, сначала `proxies` (покажет весь инвентарь). Нет static IP — почти наверняка на аккаунте rotating/GB:
+`Need N static FloppyData proxies in US, found 0` значит, что в `.env` всё ещё `PROXY_MODE=static`: бот ищет уже купленные dedicated IP и баланс не трогает. Поставь `PROXY_MODE=rotating` и `PROXY_TYPE=mobile` или:
 
 ```bash
-dotnet run --project src/GelarkBot.Cli -- create --count 3 --proxy-mode rotating --country US
+dotnet run --project src/GelarkBot.Cli -- create --count 3 --proxy-mode rotating --proxy-type mobile --country US
 ```
 
-В GeeLark прокси передаётся как `proxyInformation` в `POST /open/v1/phone/addNew`.
+Команда `proxies` показывает только static-инвентарь, не rotating-баланс.
+
+В GeeLark прокси уходит как `proxyInformation` в `POST /open/v1/phone/addNew`.
 
 ## Файл аккаунтов
 

@@ -10,8 +10,8 @@ public sealed class AppSettings
     public string FloppyDataApiKey { get; init; } = "";
     public string FloppyDataBaseUrl { get; init; } = "https://api.floppydata.net";
 
-    public string ProxyMode { get; init; } = "static";
-    public string ProxyType { get; init; } = "residential";
+    public string ProxyMode { get; init; } = "rotating";
+    public string ProxyType { get; init; } = "mobile";
     public string ProxyCountry { get; init; } = "US";
     public string? ProxyCity { get; init; }
     public string? ProxyState { get; init; }
@@ -38,8 +38,8 @@ public sealed class AppSettings
             GeeLarkBaseUrl = Get("GEELARK_BASE_URL", "https://openapi.geelark.com"),
             FloppyDataApiKey = Get("FLOPPYDATA_API_KEY"),
             FloppyDataBaseUrl = Get("FLOPPYDATA_BASE_URL", "https://api.floppydata.net"),
-            ProxyMode = Get("PROXY_MODE", "static"),
-            ProxyType = Get("PROXY_TYPE", "residential"),
+            ProxyMode = Get("PROXY_MODE", "rotating"),
+            ProxyType = Get("PROXY_TYPE", "mobile"),
             ProxyCountry = Get("PROXY_COUNTRY", "US"),
             ProxyCity = EmptyToNull(Get("PROXY_CITY")),
             ProxyState = EmptyToNull(Get("PROXY_STATE")),
@@ -119,6 +119,19 @@ public sealed class AppSettings
         {
             throw new InvalidOperationException("Set FLOPPYDATA_API_KEY.");
         }
+    }
+
+    public string DescribeProxy()
+    {
+        var mode = ProxyMode.Trim().ToLowerInvariant();
+        if (mode == "rotating")
+        {
+            var session = ProxyRotation == 0 ? "sticky" : $"rotation={ProxyRotation}";
+            return $"FloppyData rotating {ProxyType} {ProxyCountry.ToUpperInvariant()} {session} {ProxyProtocol}";
+        }
+
+        var country = string.IsNullOrWhiteSpace(ProxyCountry) ? "any country" : ProxyCountry.ToUpperInvariant();
+        return $"FloppyData static inventory ({country})";
     }
 
     private static string Get(string key, string fallback = "")

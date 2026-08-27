@@ -18,11 +18,11 @@ var dryRunOption = new Option<bool>("--dry-run")
 };
 var proxyModeOption = new Option<string?>("--proxy-mode")
 {
-    Description = "static or rotating. Default comes from PROXY_MODE.",
+    Description = "rotating spends FloppyData GB balance and creates sticky sessions. static uses already-bought IPs. Default: rotating.",
 };
 var proxyTypeOption = new Option<string?>("--proxy-type")
 {
-    Description = "residential, mobile, or datacenter. Used for rotating proxies.",
+    Description = "residential, mobile, or datacenter. Used for rotating proxies. Default: mobile.",
 };
 var countryOption = new Option<string?>("--country")
 {
@@ -115,6 +115,8 @@ createCommand.SetAction(async (parseResult, cancellationToken) =>
 
             count = emails.Count;
         }
+
+        Console.WriteLine(settings.DescribeProxy());
 
         using var floppyHttp = CreateHttp(settings.TimeoutSeconds);
         using var geeLarkHttp = dryRun ? null : CreateHttp(settings.TimeoutSeconds);
