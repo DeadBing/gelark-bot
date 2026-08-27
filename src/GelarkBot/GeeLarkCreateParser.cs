@@ -139,20 +139,11 @@ internal static class GeeLarkCreateParser
     {
         var parsed = ProxyUrl.Parse(plan.Proxy);
         var endpoint = $"{parsed.Protocol ?? "http"}://{parsed.Host}:{parsed.Port}";
-        var parts = new List<string>
-        {
-            $"check proxy failed: GeeLark could not use {endpoint}.",
-        };
-        if (plan.Diagnostics.Count > 0)
-        {
-            parts.Add(string.Join(" ", plan.Diagnostics));
-        }
-
-        parts.Add(
+        return
+            $"check proxy failed: GeeLark could not use {endpoint}. " +
             "HTTP vs SOCKS5 is not the issue — GeeLark already fails on FloppyData geo.g-w.info for both. " +
             "Paste the same host/port/user/pass in GeeLark → Proxies → Check proxy. " +
-            "If that also fails, their cloud cannot reach FloppyData's gateway.");
-        return string.Join(" ", parts);
+            "If that also fails, their cloud cannot reach FloppyData's gateway.";
     }
 
     private static bool IsSuccessMessage(string? message) =>
