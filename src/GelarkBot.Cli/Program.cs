@@ -43,7 +43,7 @@ var groupOption = new Option<string?>("--group")
 };
 var mobileTypeOption = new Option<string?>("--mobile-type")
 {
-    Description = "Android version, for example \"Android 12\".",
+    Description = "Android version or range: \"Android 12\", \"Android 12-16\" (random per profile), or a comma list. Default: Android 12-16.",
 };
 var regionOption = new Option<string?>("--region")
 {
@@ -139,7 +139,7 @@ createCommand.SetAction(async (parseResult, cancellationToken) =>
 
         PrintProfiles(result);
         Console.WriteLine(
-            $"{(result.DryRun ? "Planned" : "Created")} {result.Success}/{result.Total}. Saved {settings.OutputFile}");
+            $"{(result.DryRun ? "Planned" : "Created")} {result.Success}/{result.Total}. Saved {result.SavedTo ?? settings.OutputFile}");
         DumpLastGeeLarkResponse(settings, geeLark, result.Failed > 0, "last-geelark-create.json");
 
         return result.Failed == 0 ? 0 : 1;
@@ -252,10 +252,7 @@ checkCommand.SetAction(async (parseResult, cancellationToken) =>
             cancellationToken);
 
         PrintProfiles(result);
-        var saved = Path.Combine(
-            Path.GetDirectoryName(Path.GetFullPath(settings.OutputFile)) ?? "data",
-            "last-proxy-check.json");
-        Console.WriteLine($"Checked {result.Success}/{result.Total}. Saved {saved}");
+        Console.WriteLine($"Checked {result.Success}/{result.Total}. Saved {result.SavedTo}");
         DumpLastGeeLarkResponse(settings, geeLark, result.Failed > 0, "last-geelark-proxy.json");
         return result.Failed == 0 ? 0 : 1;
     }
@@ -370,7 +367,8 @@ static void PrintProfiles(CreateResult result)
         var status = profile.Ok ? "OK" : "FAIL";
         var id = profile.Id ?? "-";
         var login = profile.Login ?? "-";
-        Console.WriteLine($"{status}\t{profile.ProfileName}\t{id}\t{login}\t{NameUtil.RedactProxy(profile.Proxy)}");
+        var android = profile.MobileType ?? "-";
+        Console.WriteLine($"{status}\t{profile.ProfileName}\t{id}\t{login}\t{android}\t{NameUtil.RedactProxy(profile.Proxy)}");
         foreach (var line in profile.Diagnostics)
         {
             Console.WriteLine($"\t{line}");

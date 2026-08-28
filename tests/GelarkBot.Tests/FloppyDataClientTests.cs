@@ -86,12 +86,17 @@ public class FloppyDataClientTests
         var proxies = await client.AllocateAsync(2, "qa");
 
         Assert.Equal(2, proxies.Count);
-        Assert.Equal("qa001", proxies[0].Session);
-        Assert.Equal("qa002", proxies[1].Session);
-        Assert.Contains("qa001", proxies[0].ConnectionString);
+        Assert.Matches("^qa[a-z0-9]{6}001$", proxies[0].Session);
+        Assert.Matches("^qa[a-z0-9]{6}002$", proxies[1].Session);
+        Assert.Equal(proxies[0].Session![..^3], proxies[1].Session![..^3]);
+        Assert.Contains(proxies[0].Session!, proxies[0].ConnectionString);
         Assert.Equal(2, handler.Requests.Count);
         Assert.Contains("\"rotation\":0", handler.Requests[0].Body);
         Assert.Contains("\"type\":\"residential\"", handler.Requests[0].Body);
+
+        // A later run must not reuse the previous sticky sessions (same name = same exit IP).
+        var second = await client.AllocateAsync(1, "qa");
+        Assert.NotEqual(proxies[0].Session, second[0].Session);
     }
 
     [Fact]
@@ -118,7 +123,7 @@ public class FloppyDataClientTests
 
         Assert.Equal("user-abc-type-mobile-country-US", proxies[0].Username);
         Assert.Equal("s3cret", proxies[0].Password);
-        Assert.Equal("gelark001", proxies[0].Session);
+        Assert.Matches("^gelark[a-z0-9]{6}001$", proxies[0].Session);
     }
 
     [Fact]

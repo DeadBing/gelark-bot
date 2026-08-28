@@ -35,14 +35,13 @@ public sealed class GeeLarkClient
 
         batchSize = Math.Clamp(batchSize, 1, 100);
         var created = new List<CreatedProfile>();
-        for (var start = 0; start < plans.Count; start += batchSize)
+        foreach (var chunk in ChunkPlans(plans, batchSize))
         {
-            var chunk = plans.Skip(start).Take(batchSize).ToList();
             try
             {
                 created.AddRange(await CreateBatchAsync(chunk, cancellationToken));
             }
-            catch (GeeLarkException ex) when (ex.Code == 44001 && batchSize > 1)
+            catch (GeeLarkException ex) when (ex.Code == 44001 && chunk.Count > 1)
             {
                 created.AddRange(await CreatePhonesAsync(chunk, 1, cancellationToken));
             }
@@ -53,6 +52,47 @@ public sealed class GeeLarkClient
         }
 
         return created;
+    }
+
+    // mobileType is a batch-level field in phone/addNew, so plans with
+    // different Android versions must go out in separate requests.
+    private IEnumerable<List<ProfilePlan>> ChunkPlans(IReadOnlyList<ProfilePlan> plans, int batchSize)
+    {
+        var chunk = new List<ProfilePlan>();
+        foreach (var plan in plans)
+        {
+            if (chunk.Count > 0 &&
+                (chunk.Count == batchSize ||
+                 !string.Equals(EffectiveMobileType(chunk[0]), EffectiveMobileType(plan), StringComparison.Ordinal)))
+            {
+                yield return chunk;
+                chunk = [];
+            }
+
+            chunk.Add(plan);
+        }
+
+        if (chunk.Count > 0)
+        {
+            yield return chunk;
+        }
+    }
+
+    private string EffectiveMobileType(ProfilePlan plan)
+    {
+        if (!string.IsNullOrWhiteSpace(plan.MobileType))
+        {
+            return plan.MobileType;
+        }
+
+        try
+        {
+            return MobileTypes.Expand(_settings.MobileType)[0];
+        }
+        catch (FormatException)
+        {
+            return _settings.MobileType;
+        }
     }
 
     public async Task<PhoneListData> ListPhonesAsync(int page = 1, int pageSize = 20, CancellationToken cancellationToken = default)
@@ -158,10 +198,16 @@ public sealed class GeeLarkClient
             return found;
         }
 
-        var msg = root.TryGetProperty("msg", out var msgEl) ? msgEl.GetString() : "add proxy failed";
         var code = root.TryGetProperty("code", out var codeEl) && codeEl.TryGetInt32(out var parsedCode)
             ? parsedCode
             : (int?)null;
+        if (!string.IsNullOrWhiteSpace(id))
+        {
+            throw new GeeLarkException(
+                $"GeeLark accepted proxy {id}, but it did not show up in proxy/list with a serial number.", code);
+        }
+
+        var msg = root.TryGetProperty("msg", out var msgEl) ? msgEl.GetString() : "add proxy failed";
         throw new GeeLarkException($"GeeLark add proxy failed: {msg}", code);
     }
 
@@ -188,24 +234,41 @@ public sealed class GeeLarkClient
 
     private async Task<int?> FindSerialAsync(string? id, ProxyEndpoint proxy, CancellationToken cancellationToken)
     {
-        var body = string.IsNullOrWhiteSpace(id)
-            ? (object)new { page = 1, pageSize = 100 }
-            : new { page = 1, pageSize = 10, ids = new[] { id } };
-        var payload = await PostAsync<ProxyListData>("/open/v1/proxy/list", body, cancellationToken);
-        if (payload.Code != 0)
+        // Only an exact match may be returned here: attaching the serial of an
+        // unrelated proxy would silently give the phone the wrong exit IP.
+        const int pageSize = 100;
+        const int maxPages = 10;
+        for (var page = 1; page <= maxPages; page++)
         {
-            return null;
+            var body = string.IsNullOrWhiteSpace(id)
+                ? (object)new { page, pageSize }
+                : new { page = 1, pageSize = 10, ids = new[] { id } };
+            var payload = await PostAsync<ProxyListData>("/open/v1/proxy/list", body, cancellationToken);
+            if (payload.Code != 0)
+            {
+                return null;
+            }
+
+            var items = payload.Data?.List ?? [];
+            var match = items.FirstOrDefault(item =>
+                (!string.IsNullOrWhiteSpace(id) && item.Id == id) ||
+                (string.Equals(item.Server, proxy.Host, StringComparison.OrdinalIgnoreCase) &&
+                 item.Port == proxy.Port &&
+                 string.Equals(item.Username, proxy.Username, StringComparison.Ordinal)));
+            if (match is { SerialNo: > 0 } found)
+            {
+                return found.SerialNo;
+            }
+
+            if (!string.IsNullOrWhiteSpace(id) ||
+                items.Count == 0 ||
+                page * pageSize >= (payload.Data?.Total ?? 0))
+            {
+                return null;
+            }
         }
 
-        var items = payload.Data?.List ?? [];
-        var match = items.FirstOrDefault(item =>
-            (!string.IsNullOrWhiteSpace(id) && item.Id == id) ||
-            (string.Equals(item.Server, proxy.Host, StringComparison.OrdinalIgnoreCase) &&
-             item.Port == proxy.Port &&
-             string.Equals(item.Username, proxy.Username, StringComparison.Ordinal)));
-        return match is { SerialNo: > 0 } found
-            ? found.SerialNo
-            : items.FirstOrDefault(item => item.SerialNo > 0)?.SerialNo;
+        return null;
     }
 
     private async Task<IReadOnlyList<CreatedProfile>> CreateBatchAsync(
@@ -214,7 +277,7 @@ public sealed class GeeLarkClient
     {
         var body = new CreatePhonesBody
         {
-            MobileType = _settings.MobileType,
+            MobileType = EffectiveMobileType(plans[0]),
             ChargeMode = _settings.ChargeMode,
             Region = _settings.Region,
             Data = plans.Select(ToEnvRow).ToList(),

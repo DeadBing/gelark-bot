@@ -36,6 +36,7 @@ public sealed class ProfilePlan
     public string ProfileNote { get; init; } = "";
     public IReadOnlyList<string> ProfileTags { get; init; } = [];
     public string? ProfileGroup { get; init; }
+    public string? MobileType { get; init; }
     public int? ProxyNumber { get; init; }
     public int? ProxyQueryChannel { get; init; }
     public IReadOnlyList<string> Diagnostics { get; init; } = [];
@@ -52,6 +53,7 @@ public sealed class CreatedProfile
     public string? Login { get; init; }
     public string? Password { get; init; }
     public string? TotpSecret { get; init; }
+    public string? MobileType { get; init; }
     public required string Proxy { get; init; }
     public required string ProxySource { get; init; }
     public string Note { get; init; } = "";
@@ -77,6 +79,7 @@ public sealed class CreatedProfile
             Login = plan.Email?.Login,
             Password = plan.Email?.Password,
             TotpSecret = plan.Email?.TotpSecret,
+            MobileType = plan.MobileType,
             Proxy = plan.Proxy.ConnectionString,
             ProxySource = plan.Proxy.Source,
             Note = plan.ProfileNote,
@@ -94,6 +97,9 @@ public sealed class CreateResult
     public int Success { get; init; }
     public int Failed { get; init; }
     public required IReadOnlyList<CreatedProfile> Profiles { get; init; }
+
+    [JsonIgnore]
+    public string? SavedTo { get; init; }
 }
 
 public sealed class CreateRequest

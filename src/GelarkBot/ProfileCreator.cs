@@ -34,8 +34,15 @@ public sealed class ProfileCreator
         var emails = request.Emails is { Count: > 0 }
             ? EmailPool.Take(request.Emails, request.Count)
             : null;
+        var mobileTypes = MobileTypes.Expand(_settings.MobileType);
         var proxies = await _floppyData.AllocateAsync(request.Count, request.SessionPrefix, cancellationToken);
-        var plans = ProfilePlanner.Build(proxies, emails, request.NamePrefix, _settings.Group, request.NameFromEmail);
+        var plans = ProfilePlanner.Build(
+            proxies,
+            emails,
+            request.NamePrefix,
+            _settings.Group,
+            request.NameFromEmail,
+            mobileTypes);
 
         IReadOnlyList<CreatedProfile> profiles;
         if (request.DryRun)
@@ -54,6 +61,11 @@ public sealed class ProfileCreator
                 : await PrepareAndCreateAsync(plans, cancellationToken);
         }
 
+        var savedTo = request.DryRun
+            ? SiblingOutputPath("last-dry-run.json")
+            : request.CheckOnly
+                ? SiblingOutputPath("last-proxy-check.json")
+                : _settings.OutputFile;
         var result = new CreateResult
         {
             DryRun = request.DryRun,
@@ -61,16 +73,27 @@ public sealed class ProfileCreator
             Success = profiles.Count(item => item.Ok),
             Failed = profiles.Count(item => !item.Ok),
             Profiles = profiles,
+            SavedTo = savedTo,
         };
 
-        WriteResult(request.CheckOnly && request.DryRun == false ? CheckOutputPath() : _settings.OutputFile, result);
+        if (request.DryRun || request.CheckOnly)
+        {
+            WriteResult(savedTo, result);
+        }
+        else
+        {
+            // The mapping file is the only place where account passwords and
+            // TOTP secrets live, so runs merge into it instead of overwriting.
+            MergeIntoFile(savedTo, result);
+        }
+
         return result;
     }
 
-    private string CheckOutputPath()
+    private string SiblingOutputPath(string fileName)
     {
         var directory = Path.GetDirectoryName(Path.GetFullPath(_settings.OutputFile)) ?? "data";
-        return Path.Combine(directory, "last-proxy-check.json");
+        return Path.Combine(directory, fileName);
     }
 
     private async Task<IReadOnlyList<CreatedProfile>> CheckOnlyAsync(
@@ -239,6 +262,7 @@ public sealed class ProfileCreator
         var prepared = new ProfilePlan
         {
             ProfileName = plan.ProfileName,
+            MobileType = plan.MobileType,
             Proxy = new ProxyEndpoint
             {
                 ConnectionString = plan.Proxy.ConnectionString,
@@ -320,6 +344,64 @@ public sealed class ProfileCreator
         }
 
         File.WriteAllText(path, JsonSerializer.Serialize(result, JsonUtil.Indented));
+    }
+
+    internal static void MergeIntoFile(string path, CreateResult result)
+    {
+        WriteResult(path, Merge(ReadExisting(path), result));
+    }
+
+    private static CreateResult? ReadExisting(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<CreateResult>(File.ReadAllText(path), JsonUtil.Options);
+        }
+        catch (JsonException)
+        {
+            // Never lose saved credentials to a corrupt file: keep it aside.
+            File.Copy(path, path + ".bak", overwrite: true);
+            return null;
+        }
+    }
+
+    private static CreateResult Merge(CreateResult? existing, CreateResult current)
+    {
+        if (existing is null || existing.Profiles.Count == 0)
+        {
+            return current;
+        }
+
+        var currentIds = current.Profiles
+            .Where(profile => !string.IsNullOrWhiteSpace(profile.Id))
+            .Select(profile => profile.Id!)
+            .ToHashSet(StringComparer.Ordinal);
+        var currentNames = current.Profiles
+            .Select(profile => profile.ProfileName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // Entries with a phone id are only replaced by the same id; entries
+        // without one (failed attempts) give way to a rerun with the same name.
+        var kept = existing.Profiles
+            .Where(profile => !string.IsNullOrWhiteSpace(profile.Id)
+                ? !currentIds.Contains(profile.Id!)
+                : !currentNames.Contains(profile.ProfileName))
+            .ToList();
+        var merged = kept.Concat(current.Profiles).ToList();
+        return new CreateResult
+        {
+            DryRun = false,
+            Total = merged.Count,
+            Success = merged.Count(profile => profile.Ok),
+            Failed = merged.Count(profile => !profile.Ok),
+            Profiles = merged,
+            SavedTo = current.SavedTo,
+        };
     }
 
     private sealed record PreparedPlan(ProfilePlan Plan, bool GeeLarkOk, bool SkipCreate, string? Error);

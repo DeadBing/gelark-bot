@@ -19,7 +19,7 @@ public sealed class AppSettings
     public int ProxyRotation { get; init; } = 0;
     public int ProxyQueryChannel { get; init; } = 1;
 
-    public string MobileType { get; init; } = "Android 12";
+    public string MobileType { get; init; } = "Android 12-16";
     public string Region { get; init; } = "sgp";
     public int ChargeMode { get; init; } = 0;
     public string? Group { get; init; }
@@ -47,7 +47,7 @@ public sealed class AppSettings
             ProxyProtocol = Get("PROXY_PROTOCOL", "http"),
             ProxyRotation = GetInt("PROXY_ROTATION", 0),
             ProxyQueryChannel = GetInt("GEELARK_PROXY_QUERY_CHANNEL", 1),
-            MobileType = Get("GEELARK_MOBILE_TYPE", "Android 12"),
+            MobileType = Get("GEELARK_MOBILE_TYPE", "Android 12-16"),
             Region = Get("GEELARK_REGION", "sgp"),
             ChargeMode = GetInt("GEELARK_CHARGE_MODE", 0),
             Group = EmptyToNull(Get("GEELARK_GROUP")),

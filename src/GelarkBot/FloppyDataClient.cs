@@ -163,10 +163,11 @@ public sealed class FloppyDataClient
             throw new InvalidOperationException($"Unknown proxy mode: {_settings.ProxyMode}");
         }
 
+        var runToken = SessionToken();
         var allocated = new List<ProxyEndpoint>(count);
         for (var i = 1; i <= count; i++)
         {
-            allocated.Add(await CreateRotatingConnectionAsync(SessionId(sessionPrefix, i), cancellationToken: cancellationToken));
+            allocated.Add(await CreateRotatingConnectionAsync(SessionId(sessionPrefix, runToken, i), cancellationToken: cancellationToken));
         }
 
         return allocated;
@@ -360,7 +361,7 @@ public sealed class FloppyDataClient
         return $"{scheme}://{Uri.EscapeDataString(proxy.Username)}:{Uri.EscapeDataString(proxy.Password ?? "")}@{proxy.Host}:{proxy.Port}";
     }
 
-    internal static string SessionId(string prefix, int index)
+    internal static string SessionId(string prefix, string runToken, int index)
     {
         var cleaned = new string((prefix ?? "s").Where(char.IsLetterOrDigit).ToArray());
         if (cleaned.Length == 0)
@@ -368,7 +369,21 @@ public sealed class FloppyDataClient
             cleaned = "s";
         }
 
-        return $"{cleaned}{index:000}";
+        return $"{cleaned}{runToken}{index:000}";
+    }
+
+    // A fresh token per run keeps FloppyData sticky sessions unique: reusing
+    // the same session name would hand a later batch the same exit IPs.
+    internal static string SessionToken()
+    {
+        const string alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+        return string.Create(6, alphabet, static (span, chars) =>
+        {
+            for (var i = 0; i < span.Length; i++)
+            {
+                span[i] = chars[Random.Shared.Next(chars.Length)];
+            }
+        });
     }
 
     private static string? ProtocolFromUrl(string connectionString)

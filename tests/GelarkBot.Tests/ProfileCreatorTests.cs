@@ -33,7 +33,8 @@ public class ProfileCreatorTests
         {
             Responder = (_, _) => throw new InvalidOperationException("GeeLark should not be called in dry-run"),
         };
-        var output = Path.Combine(Path.GetTempPath(), $"profiles-{Guid.NewGuid():N}.json");
+        var outputDir = Directory.CreateTempSubdirectory("gelark-test-").FullName;
+        var output = Path.Combine(outputDir, "profiles.json");
         var settings = TestHttp.Settings(outputFile: output);
         using var floppyHttp = new HttpClient(floppyHandler);
         using var geeLarkHttp = new HttpClient(geeLarkHandler);
@@ -57,16 +58,19 @@ public class ProfileCreatorTests
             Assert.Equal("alice@example.com", result.Profiles[0].Login);
             Assert.Equal("pw", result.Profiles[0].Password);
             Assert.Equal("JBSWY3DPEHPK3PXP", result.Profiles[0].TotpSecret);
+            Assert.Equal("Android 12", result.Profiles[0].MobileType);
             Assert.Empty(geeLarkHandler.Requests);
-            Assert.True(File.Exists(output));
-            Assert.Contains("alice@example.com", File.ReadAllText(output));
+
+            // Dry runs must not touch the real mapping file.
+            var dryRunFile = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(output))!, "last-dry-run.json");
+            Assert.Equal(dryRunFile, result.SavedTo);
+            Assert.False(File.Exists(output));
+            Assert.True(File.Exists(dryRunFile));
+            Assert.Contains("alice@example.com", File.ReadAllText(dryRunFile));
         }
         finally
         {
-            if (File.Exists(output))
-            {
-                File.Delete(output);
-            }
+            Directory.Delete(outputDir, recursive: true);
         }
     }
 
@@ -229,6 +233,60 @@ public class ProfileCreatorTests
             }
         }
     }
+
+    [Fact]
+    public void MergeIntoFile_KeepsProfilesFromEarlierRuns()
+    {
+        var outputDir = Directory.CreateTempSubdirectory("gelark-test-").FullName;
+        var output = Path.Combine(outputDir, "profiles.json");
+        try
+        {
+            ProfileCreator.MergeIntoFile(output, Result(
+                Profile("alice", ok: true, id: "phone-1", totp: "SECRET1"),
+                Profile("bob", ok: false, id: null)));
+            ProfileCreator.MergeIntoFile(output, Result(
+                Profile("bob", ok: true, id: "phone-2"),
+                Profile("carol", ok: true, id: "phone-3")));
+
+            var merged = System.Text.Json.JsonSerializer.Deserialize<CreateResult>(
+                File.ReadAllText(output),
+                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+
+            Assert.Equal(3, merged.Total);
+            Assert.Equal(3, merged.Success);
+            Assert.Equal(0, merged.Failed);
+            // alice from the first run survives with her secrets.
+            var alice = Assert.Single(merged.Profiles, item => item.ProfileName == "alice");
+            Assert.Equal("SECRET1", alice.TotpSecret);
+            // The failed bob without an id is replaced by the successful rerun.
+            var bob = Assert.Single(merged.Profiles, item => item.ProfileName == "bob");
+            Assert.Equal("phone-2", bob.Id);
+            Assert.Single(merged.Profiles, item => item.ProfileName == "carol");
+        }
+        finally
+        {
+            Directory.Delete(outputDir, recursive: true);
+        }
+    }
+
+    private static CreateResult Result(params CreatedProfile[] profiles) => new()
+    {
+        DryRun = false,
+        Total = profiles.Length,
+        Success = profiles.Count(item => item.Ok),
+        Failed = profiles.Count(item => !item.Ok),
+        Profiles = profiles,
+    };
+
+    private static CreatedProfile Profile(string name, bool ok, string? id, string? totp = null) => new()
+    {
+        ProfileName = name,
+        Ok = ok,
+        Id = id,
+        TotpSecret = totp,
+        Proxy = "http://u:p@1.1.1.1:80",
+        ProxySource = "static",
+    };
 
     [Fact]
     public async Task CheckOnly_DoesNotCreatePhones()
