@@ -1,0 +1,5 @@
+# login:password:totp
+# TOTP secret is stored with the profile. It is not used when creating it.
+alice@example.com:secret1:JBSWY3DPEHPK3PXP
+bob@example.com:secret2:MFRGGZDFMZTWQ2LK
+user123:p@ss:ONSWG4TFOQ
