@@ -74,6 +74,34 @@ public class ProfilePlannerTests
     }
 
     [Fact]
+    public void Build_AssignsMobileTypeFromPool()
+    {
+        var proxies = Enumerable.Range(1, 10)
+            .Select(i => new ProxyEndpoint { ConnectionString = $"http://u:p@1.1.1.{i}:80", Source = "rotating" })
+            .ToArray();
+        var mobileTypes = MobileTypes.Expand("Android 12-16");
+
+        var plans = ProfilePlanner.Build(proxies, null, "gl", null, true, mobileTypes, new Random(7));
+
+        Assert.All(plans, plan => Assert.Contains(plan.MobileType, mobileTypes));
+        // With ten draws from five versions the seed must produce some variety.
+        Assert.True(plans.Select(plan => plan.MobileType).Distinct().Count() > 1);
+    }
+
+    [Fact]
+    public void Build_LeavesMobileTypeNullWithoutPool()
+    {
+        var proxies = new[]
+        {
+            new ProxyEndpoint { ConnectionString = "http://u:p@1.1.1.1:80", Source = "rotating" },
+        };
+
+        var plans = ProfilePlanner.Build(proxies, null, "gl", null, true);
+
+        Assert.Null(plans[0].MobileType);
+    }
+
+    [Fact]
     public void RedactProxy_HidesPassword()
     {
         Assert.Equal("socks5://user:***@host.example:1080", NameUtil.RedactProxy("socks5://user:secret@host.example:1080"));

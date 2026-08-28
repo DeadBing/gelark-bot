@@ -31,7 +31,7 @@ dotnet run --project src/GelarkBot.Cli -- create --emails accounts.txt --group q
 
 После `dotnet build` бинарник: `src/GelarkBot.Cli/bin/Debug/net8.0/gelark-bot`.
 
-`--dry-run` ходит в FloppyData, но не создаёт профили в GeeLark. Боевой `create` создаёт cloud phone, вешает прокси и пишет маппинг в `data/created-profiles.json`. Приложения не ставит, 2FA-коды не считает. В консоли строки `OK`/`FAIL`; код выхода `0` если все создались, `1` если были ошибки.
+`--dry-run` ходит в FloppyData, но не создаёт профили в GeeLark; план пишется в `data/last-dry-run.json`. Боевой `create` создаёт cloud phone, вешает прокси и пишет маппинг в `data/created-profiles.json` — файл **дополняется**: записи прошлых запусков (с паролями и TOTP-секретами) сохраняются, а не затираются. Приложения не ставит, 2FA-коды не считает. В консоли строки `OK`/`FAIL`; код выхода `0` если все создались, `1` если были ошибки.
 
 ## Команды
 
@@ -51,13 +51,16 @@ dotnet run --project src/GelarkBot.Cli -- create --emails accounts.txt --group q
 - `--proxy-type mobile|residential|datacenter` — по умолчанию mobile
 - `--country US` — гео для rotating / фильтр static
 - `--dry-run` — только план и JSON, без `phone/addNew`
-- `--group`, `--mobile-type`, `--region`, `--output`
+- `--mobile-type` — версия Android: `"Android 12"`, диапазон `"Android 12-16"` (каждому профилю случайная версия из диапазона) или список через запятую. По умолчанию `Android 12-16`
+- `--group`, `--region`, `--output`
 
 По умолчанию Basic-план GeeLark: создание по одному (`--batch-size 1`). На Pro можно больше; если API вернёт `44001`, клиент сам уйдёт в поштучное создание.
 
 ## Прокси
 
 По умолчанию бот **сам создаёт sticky** mobile-прокси из **GB-баланса** FloppyData (`rotation=0`, уникальный `session` на профиль). Слово rotating в API FloppyData — это продукт «трафик в ГБ», не смена IP на каждый запрос. У трёх профилей будут три разных sticky-IP — так и надо.
+
+Имя сессии содержит случайный токен запуска (`gelark<токен>001`), поэтому повторный `create` не переиспользует sticky-сессии предыдущего запуска: каждый новый профиль получает свой IP, даже между запусками.
 
 Перед `phone/addNew` бот:
 

@@ -301,6 +301,93 @@ public class GeeLarkClientTests
     }
 
     [Fact]
+    public async Task CreatePhones_SplitsBatchesByMobileType()
+    {
+        var bodies = new List<string>();
+        var handler = new ScriptedHandler
+        {
+            Responder = (_, body) =>
+            {
+                bodies.Add(body);
+                using var doc = JsonDocument.Parse(body);
+                var name = doc.RootElement.GetProperty("data")[0].GetProperty("profileName").GetString();
+                return TestHttp.Json($$"""
+                    {
+                      "code": 0,
+                      "msg": "success",
+                      "data": {
+                        "details": [
+                          { "index": 1, "code": 0, "msg": "success", "id": "{{name}}-id", "profileName": "{{name}}" }
+                        ]
+                      }
+                    }
+                    """);
+            },
+        };
+        using var http = new HttpClient(handler);
+        var client = new GeeLarkClient(http, TestHttp.Settings());
+
+        var created = await client.CreatePhonesAsync(
+            [PlanWithType("a", "Android 13"), PlanWithType("b", "Android 15")],
+            batchSize: 2);
+
+        Assert.Equal(2, bodies.Count);
+        Assert.Contains("\"mobileType\":\"Android 13\"", bodies[0]);
+        Assert.Contains("\"mobileType\":\"Android 15\"", bodies[1]);
+        Assert.All(created, item => Assert.True(item.Ok));
+    }
+
+    [Fact]
+    public async Task AddOrGetSerial_DoesNotBorrowUnrelatedSerial()
+    {
+        var handler = new ScriptedHandler
+        {
+            Responder = (request, _) =>
+            {
+                if (request.RequestUri!.AbsolutePath.EndsWith("/open/v1/proxy/add"))
+                {
+                    return TestHttp.Json("""
+                        {
+                          "code": 0,
+                          "msg": "success",
+                          "data": { "successDetails": [ { "index": 0, "id": "proxy-new" } ] }
+                        }
+                        """);
+                }
+
+                // proxy/list only knows a different proxy.
+                return TestHttp.Json("""
+                    {
+                      "code": 0,
+                      "msg": "success",
+                      "data": {
+                        "total": 1,
+                        "list": [
+                          { "id": "proxy-other", "serialNo": 99, "server": "9.9.9.9", "port": 9999, "username": "other" }
+                        ]
+                      }
+                    }
+                    """);
+            },
+        };
+        using var http = new HttpClient(handler);
+        var client = new GeeLarkClient(http, TestHttp.Settings());
+
+        var ex = await Assert.ThrowsAsync<GeeLarkException>(() => client.AddOrGetSerialAsync(new ProxyEndpoint
+        {
+            ConnectionString = "http://u:p@1.1.1.1:80",
+            Source = "static",
+            Protocol = "http",
+            Host = "1.1.1.1",
+            Port = 80,
+            Username = "u",
+            Password = "p",
+        }));
+
+        Assert.Contains("proxy-new", ex.Message);
+    }
+
+    [Fact]
     public async Task HttpError_IsWrapped()
     {
         var handler = new ScriptedHandler
@@ -318,5 +405,12 @@ public class GeeLarkClientTests
     {
         ProfileName = name,
         Proxy = new ProxyEndpoint { ConnectionString = "http://u:p@1.1.1.1:80", Source = "static" },
+    };
+
+    private static ProfilePlan PlanWithType(string name, string mobileType) => new()
+    {
+        ProfileName = name,
+        Proxy = new ProxyEndpoint { ConnectionString = "http://u:p@1.1.1.1:80", Source = "static" },
+        MobileType = mobileType,
     };
 }

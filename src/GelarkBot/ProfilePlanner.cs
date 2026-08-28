@@ -7,13 +7,16 @@ public static class ProfilePlanner
         IReadOnlyList<EmailCredential>? emails,
         string namePrefix,
         string? group,
-        bool nameFromEmail)
+        bool nameFromEmail,
+        IReadOnlyList<string>? mobileTypes = null,
+        Random? random = null)
     {
         if (emails is { Count: > 0 } && emails.Count < proxies.Count)
         {
             throw new InvalidOperationException($"Need {proxies.Count} accounts, but the pool only has {emails.Count}.");
         }
 
+        random ??= Random.Shared;
         var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var plans = new List<ProfilePlan>(proxies.Count);
         for (var i = 0; i < proxies.Count; i++)
@@ -34,6 +37,9 @@ public static class ProfilePlanner
                 ProfileNote = email?.NoteLine() ?? "",
                 ProfileTags = tags,
                 ProfileGroup = group,
+                MobileType = mobileTypes is { Count: > 0 }
+                    ? mobileTypes[random.Next(mobileTypes.Count)]
+                    : null,
             });
         }
 
